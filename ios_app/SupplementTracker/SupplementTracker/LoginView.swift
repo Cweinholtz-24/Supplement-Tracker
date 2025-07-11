@@ -50,55 +50,51 @@ struct LoginView: View {
                 }
                 
                 Button(action: {
-                    login()
+                    loginUser()
                 }) {
-                    HStack {
-                        if isLoading {
+                    if isLoading {
+                        HStack {
                             ProgressView()
                                 .scaleEffect(0.8)
-                                .foregroundColor(.white)
+                            Text("Logging in...")
                         }
+                    } else {
                         Text("Login")
-                            .fontWeight(.semibold)
+                            .frame(maxWidth: .infinity)
                     }
-                    .frame(maxWidth: .infinity)
-                    .padding()
-                    .background(Color.blue)
-                    .foregroundColor(.white)
-                    .cornerRadius(10)
                 }
-                .disabled(isLoading || username.isEmpty || password.isEmpty)
+                .buttonStyle(.borderedProminent)
+                .disabled(username.isEmpty || password.isEmpty || isLoading)
+                
+                Button(action: {
+                    // Handle registration - could navigate to registration view
+                    // For now, show message
+                    errorMessage = "Registration available on web app"
+                }) {
+                    Text("Create Account")
+                        .foregroundColor(.blue)
+                }
             }
-            .padding(.horizontal, 30)
+            .padding(.horizontal, 40)
             
             Spacer()
-            
-            VStack(spacing: 10) {
-                Text("Don't have an account?")
-                    .foregroundColor(.secondary)
-                
-                Button("Register") {
-                    // Navigate to registration
-                }
-                .foregroundColor(.blue)
-            }
         }
         .padding()
     }
     
-    private func login() {
+    private func loginUser() {
         isLoading = true
         errorMessage = ""
         
         apiService.login(username: username, password: password) { result in
             DispatchQueue.main.async {
-                self.isLoading = false
+                isLoading = false
                 
                 switch result {
                 case .success:
-                    self.isLoggedIn = true
+                    isLoggedIn = true
                 case .failure(let error):
-                    self.errorMessage = error.localizedDescription
+                    errorMessage = error.localizedDescription
                 }
             }
         }
