@@ -2351,6 +2351,16 @@ ADMIN_USERS_TEMPLATE = """
         Total: {{total_users}} users | Showing {{(current_page-1)*per_page + 1}}-{{((current_page-1)*per_page + users|length)}} of {{total_users}}
       </div>
     </div>
+
+    <div style="margin-bottom: 16px; padding: 16px; background: var(--bg); border-radius: 8px; border: 1px solid var(--border);">
+      <h4 style="margin: 0 0 12px 0; color: var(--primary);">🔧 Available User Actions:</h4>
+      <ul style="margin: 0; padding-left: 20px; font-size: 14px;">
+        <li><strong>Edit Users:</strong> Modify email addresses and reset passwords</li>
+        <li><strong>Disable/Enable:</strong> Temporarily disable user accounts</li>
+        <li><strong>Reset 2FA:</strong> Reset two-factor authentication for users</li>
+        <li><strong>Delete Users:</strong> Permanently remove user accounts and all data</li>
+      </ul>
+    </div>
     
     {% if users %}
       <table>
@@ -2370,7 +2380,11 @@ ADMIN_USERS_TEMPLATE = """
           <tr>
             <td><strong>{{user[1]}}</strong></td>
             <td>{{user[2] or 'Not set'}}</td>
-            <td>{{user[5]}}</td>
+            <td>
+              <span class="status-badge status-info">
+                {{user[5]}} protocols
+              </span>
+            </td>
             <td>
               <span class="status-badge {{ 'status-danger' if user[6] else 'status-success' }}">
                 {{ 'Disabled' if user[6] else 'Active' }}
