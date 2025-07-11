@@ -59,11 +59,16 @@ class APIService: ObservableObject {
             }
             
             if httpResponse.statusCode == 200 {
-                // For now, we'll simulate successful login
-                // In a real implementation, you'd parse the response for auth tokens
+                // Save session cookies for future requests
+                if let headerFields = httpResponse.allHeaderFields as? [String: String],
+                   let url = httpResponse.url {
+                    let cookies = HTTPCookie.cookies(withResponseHeaderFields: headerFields, for: url)
+                    HTTPCookieStorage.shared.setCookies(cookies, for: url, mainDocumentURL: nil)
+                }
+                
                 DispatchQueue.main.async {
                     self.isAuthenticated = true
-                    self.saveAuthToken("dummy_token")
+                    self.saveAuthToken(username) // Save username instead of dummy token
                 }
                 completion(.success(()))
             } else {
@@ -89,13 +94,23 @@ class APIService: ObservableObject {
         var request = URLRequest(url: url)
         request.httpMethod = "GET"
         
-        if let token = authToken {
-            request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
-        }
-        
         URLSession.shared.dataTask(with: request) { data, response, error in
             if let error = error {
                 completion(.failure(error))
+                return
+            }
+            
+            guard let httpResponse = response as? HTTPURLResponse else {
+                completion(.failure(APIError.invalidResponse))
+                return
+            }
+            
+            if httpResponse.statusCode == 401 {
+                DispatchQueue.main.async {
+                    self.isAuthenticated = false
+                    self.clearAuthToken()
+                }
+                completion(.failure(APIError.loginFailed))
                 return
             }
             
@@ -108,6 +123,7 @@ class APIService: ObservableObject {
                 let protocols = try JSONDecoder().decode([ProtocolModel].self, from: data)
                 completion(.success(protocols))
             } catch {
+                print("JSON decode error: \(error)")
                 completion(.failure(error))
             }
         }.resume()
@@ -122,10 +138,6 @@ class APIService: ObservableObject {
         var request = URLRequest(url: url)
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        
-        if let token = authToken {
-            request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
-        }
         
         let logData = ProtocolLogRequest(compounds: compounds, notes: notes)
         
@@ -144,6 +156,15 @@ class APIService: ObservableObject {
             
             guard let httpResponse = response as? HTTPURLResponse else {
                 completion(.failure(APIError.invalidResponse))
+                return
+            }
+            
+            if httpResponse.statusCode == 401 {
+                DispatchQueue.main.async {
+                    self.isAuthenticated = false
+                    self.clearAuthToken()
+                }
+                completion(.failure(APIError.loginFailed))
                 return
             }
             

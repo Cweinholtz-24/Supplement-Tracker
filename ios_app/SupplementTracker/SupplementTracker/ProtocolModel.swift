@@ -49,3 +49,39 @@ struct UserProfile: Codable {
     let createdAt: String
     let protocolCount: Int
 }
+//
+//  ProtocolModel.swift
+//  SupplementTracker
+//
+//  Created by Developer on 2024-01-01.
+//
+
+import Foundation
+
+struct ProtocolModel: Codable, Identifiable {
+    let id: String
+    let name: String
+    let compounds: [String]
+    let frequency: String
+    let description: String
+    
+    enum CodingKeys: String, CodingKey {
+        case id, name, compounds, frequency, description
+    }
+}
+
+struct ProtocolLogEntry: Codable {
+    let id: String
+    let date: String
+    let compounds: [String: CompoundLog]
+    let mood: String?
+    let energy: String?
+    let sideEffects: String?
+    let weight: String?
+    let generalNotes: String?
+}
+
+struct CompoundLog: Codable {
+    let taken: Bool
+    let note: String
+}
