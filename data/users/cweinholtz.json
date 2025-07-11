@@ -1,15 +1,6 @@
 {
   "password": "scrypt:32768:8:1$GpNOd13pGYtUuYjG$bc2cf3e868c2bce5184a8e92eb4432965fc5f14becd9e1596338b98470c14dd41f39b8511af43660625a8111ab31174859926ce7f5f83ab7cfef8e3d9cec38f8",
   "2fa_secret": "677RJG4ZZNDCNEOU4GPKJ7UE4HE3M5OP",
-  "protocols": {
-    "Test 1": {
-      "compounds": [
-        "FOXO4-DRI",
-        "Fisetin",
-        "Quercetin"
-      ],
-      "logs": {}
-    }
-  },
+  "protocols": {},
   "email": ""
 }
