@@ -87,20 +87,20 @@ struct DashboardView: View {
 }
 
 struct ProtocolRowView: View {
-    let protocol: ProtocolModel
+    let protocolItem: ProtocolModel
     
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
-            Text(protocol.name)
+            Text(protocolItem.name)
                 .font(.headline)
                 .fontWeight(.semibold)
             
-            Text("\(protocol.compounds.count) compounds • \(protocol.frequency)")
+            Text("\(protocolItem.compounds.count) compounds • \(protocolItem.frequency)")
                 .font(.subheadline)
                 .foregroundColor(.secondary)
             
-            if !protocol.description.isEmpty {
-                Text(protocol.description)
+            if !protocolItem.description.isEmpty {
+                Text(protocolItem.description)
                     .font(.caption)
                     .foregroundColor(.secondary)
                     .lineLimit(2)
