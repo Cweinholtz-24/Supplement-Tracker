@@ -233,8 +233,28 @@ class User(UserMixin):
                 return User(username, row[0])
         return None
 
+class Admin(UserMixin):
+    def __init__(self, username, admin_id=None, role=None):
+        self.id = f"admin_{username}"  # Prefix to distinguish from regular users
+        self.admin_id = admin_id
+        self.username = username
+        self.role = role
+
+    @staticmethod
+    def get(username):
+        with get_db_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute("SELECT id, role FROM admins WHERE username = ?", (username,))
+            row = cursor.fetchone()
+            if row:
+                return Admin(username, row[0], row[1])
+        return None
+
 @login_manager.user_loader
 def load_user(user_id):
+    if user_id.startswith("admin_"):
+        admin_username = user_id.replace("admin_", "")
+        return Admin.get(admin_username)
     return User.get(user_id)
 
 def load_data(username=None):
@@ -371,9 +391,15 @@ def register():
         
         with get_db_connection() as conn:
             cursor = conn.cursor()
+            # Check for username conflicts in both users and admins tables
             cursor.execute("SELECT id FROM users WHERE username = ?", (username,))
             if cursor.fetchone():
-                flash("User already exists", "error")
+                flash("Username already exists", "error")
+                return render_template_string(THEME_HEADER + AUTH_TEMPLATE, title="Register", action="register")
+            
+            cursor.execute("SELECT id FROM admins WHERE username = ?", (username,))
+            if cursor.fetchone():
+                flash("Username conflicts with admin account", "error")
                 return render_template_string(THEME_HEADER + AUTH_TEMPLATE, title="Register", action="register")
             
             secret = pyotp.random_base32()
@@ -387,6 +413,54 @@ def register():
         flash("Account created successfully! Please set up 2FA.", "success")
         return redirect(url_for("twofa_setup"))
     return render_template_string(THEME_HEADER + AUTH_TEMPLATE, title="Register", action="register")
+
+@app.route("/admin/register", methods=["GET", "POST"])
+def admin_register():
+    if request.method == "POST":
+        username = request.form["username"].strip().lower()
+        password = request.form["password"]
+        role = request.form.get("role", "Admin")
+        
+        if not username or not password:
+            flash("Username and password are required", "error")
+            return render_template_string(THEME_HEADER + ADMIN_AUTH_TEMPLATE, title="Admin Register", action="admin/register")
+            
+        if len(username) < 3:
+            flash("Username must be at least 3 characters", "error")
+            return render_template_string(THEME_HEADER + ADMIN_AUTH_TEMPLATE, title="Admin Register", action="admin/register")
+            
+        if len(password) < 6:
+            flash("Password must be at least 6 characters", "error")
+            return render_template_string(THEME_HEADER + ADMIN_AUTH_TEMPLATE, title="Admin Register", action="admin/register")
+        
+        if role not in ["Super Admin", "Admin", "Operator"]:
+            flash("Invalid role selected", "error")
+            return render_template_string(THEME_HEADER + ADMIN_AUTH_TEMPLATE, title="Admin Register", action="admin/register")
+        
+        with get_db_connection() as conn:
+            cursor = conn.cursor()
+            # Check for username conflicts in both users and admins tables
+            cursor.execute("SELECT id FROM users WHERE username = ?", (username,))
+            if cursor.fetchone():
+                flash("Username conflicts with user account", "error")
+                return render_template_string(THEME_HEADER + ADMIN_AUTH_TEMPLATE, title="Admin Register", action="admin/register")
+            
+            cursor.execute("SELECT id FROM admins WHERE username = ?", (username,))
+            if cursor.fetchone():
+                flash("Admin already exists", "error")
+                return render_template_string(THEME_HEADER + ADMIN_AUTH_TEMPLATE, title="Admin Register", action="admin/register")
+            
+            secret = pyotp.random_base32()
+            cursor.execute('''
+                INSERT INTO admins (username, password_hash, twofa_secret, role, email)
+                VALUES (?, ?, ?, ?, ?)
+            ''', (username, generate_password_hash(password), secret, role, ""))
+            conn.commit()
+            
+        session["pending_admin"] = username
+        flash("Admin account created successfully! Please set up 2FA.", "success")
+        return redirect(url_for("admin_twofa_setup"))
+    return render_template_string(THEME_HEADER + ADMIN_AUTH_TEMPLATE, title="Admin Register", action="admin/register")
 
 @app.route("/login", methods=["GET", "POST"])
 def login():
@@ -418,6 +492,36 @@ def login():
         return redirect(url_for("twofa_verify"))
     return render_template_string(THEME_HEADER + AUTH_TEMPLATE, title="Login", action="login")
 
+@app.route("/admin/login", methods=["GET", "POST"])
+def admin_login():
+    if request.method == "POST":
+        username = request.form["username"].strip().lower()
+        password = request.form["password"]
+        
+        if not username or not password:
+            flash("Username and password are required", "error")
+            return render_template_string(THEME_HEADER + ADMIN_AUTH_TEMPLATE, title="Admin Login", action="admin/login")
+        
+        with get_db_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute("SELECT password_hash FROM admins WHERE username = ?", (username,))
+            row = cursor.fetchone()
+            if not row:
+                flash("Admin not found", "error")
+                return render_template_string(THEME_HEADER + ADMIN_AUTH_TEMPLATE, title="Admin Login", action="admin/login")
+            
+            if not check_password_hash(row[0], password):
+                flash("Incorrect password", "error")
+                return render_template_string(THEME_HEADER + ADMIN_AUTH_TEMPLATE, title="Admin Login", action="admin/login")
+            
+            # Update last login
+            cursor.execute("UPDATE admins SET last_login = CURRENT_TIMESTAMP WHERE username = ?", (username,))
+            conn.commit()
+            
+        session["pending_admin"] = username
+        return redirect(url_for("admin_twofa_verify"))
+    return render_template_string(THEME_HEADER + ADMIN_AUTH_TEMPLATE, title="Admin Login", action="admin/login")
+
 @app.route("/2fa", methods=["GET", "POST"])
 def twofa_verify():
     username = session.get("pending_user")
@@ -439,6 +543,72 @@ def twofa_verify():
             flash("Invalid 2FA code. Please try again.", "error")
             return render_template_string(THEME_HEADER + TWOFA_TEMPLATE)
     return render_template_string(THEME_HEADER + TWOFA_TEMPLATE)
+
+@app.route("/admin/2fa", methods=["GET", "POST"])
+def admin_twofa_verify():
+    username = session.get("pending_admin")
+    if not username:
+        flash("Session expired. Please login again.", "error")
+        return redirect(url_for("admin_login"))
+    data = load_admin_data(username)
+    if request.method == "POST":
+        code = request.form["code"]
+        if not code or len(code) != 6:
+            flash("Please enter a valid 6-digit code", "error")
+            return render_template_string(THEME_HEADER + TWOFA_TEMPLATE)
+        if pyotp.TOTP(data["2fa_secret"]).verify(code):
+            admin = Admin.get(username)
+            login_user(admin)
+            session.pop("pending_admin")
+            flash("Successfully logged in as admin!", "success")
+            return redirect(url_for("admin_dashboard"))
+        else:
+            flash("Invalid 2FA code. Please try again.", "error")
+            return render_template_string(THEME_HEADER + TWOFA_TEMPLATE)
+    return render_template_string(THEME_HEADER + TWOFA_TEMPLATE)
+
+def load_admin_data(username):
+    """Load admin data from database"""
+    with get_db_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute('''
+            SELECT password_hash, twofa_secret, email, role 
+            FROM admins WHERE username = ?
+        ''', (username,))
+        row = cursor.fetchone()
+        if not row:
+            return {"password": "", "2fa_secret": "", "email": "", "role": ""}
+        
+        return {
+            "password": row[0],
+            "2fa_secret": row[1],
+            "email": row[2] or "",
+            "role": row[3] or "Admin"
+        }
+
+def is_admin():
+    """Check if current user is an admin"""
+    return hasattr(current_user, 'role') and current_user.is_authenticated
+
+def admin_required(f):
+    """Decorator to require admin authentication"""
+    def decorated_function(*args, **kwargs):
+        if not is_admin():
+            flash("Admin access required", "error")
+            return redirect(url_for("admin_login"))
+        return f(*args, **kwargs)
+    decorated_function.__name__ = f.__name__
+    return decorated_function
+
+def super_admin_required(f):
+    """Decorator to require super admin authentication"""
+    def decorated_function(*args, **kwargs):
+        if not is_admin() or current_user.role != "Super Admin":
+            flash("Super Admin access required", "error")
+            return redirect(url_for("admin_dashboard"))
+        return f(*args, **kwargs)
+    decorated_function.__name__ = f.__name__
+    return decorated_function
 
 @app.route("/2fa_setup")
 def twofa_setup():
@@ -474,11 +644,137 @@ def twofa_setup():
     
     return render_template_string(THEME_HEADER + setup_template, qr_code=encoded, secret=data['2fa_secret'])
 
+@app.route("/admin/2fa_setup")
+def admin_twofa_setup():
+    username = session.get("pending_admin")
+    if not username:
+        flash("Session expired. Please login again.", "error")
+        return redirect(url_for("admin_login"))
+    data = load_admin_data(username)
+    uri = pyotp.TOTP(data["2fa_secret"]).provisioning_uri(
+        name=f"admin_{username}",
+        issuer_name="SupplementTracker-Admin"
+    )
+    img = qrcode.make(uri)
+    buf = io.BytesIO()
+    img.save(buf, format="PNG")
+    buf.seek(0)
+    encoded = base64.b64encode(buf.read()).decode()
+    
+    setup_template = """
+    <div class="container">
+      <div class="card" style="max-width: 500px; margin: 80px auto; text-align: center;">
+        <h2>🔐 Set Up Admin Two-Factor Authentication</h2>
+        <p>Scan this QR code with Google Authenticator or similar app:</p>
+        <img src='data:image/png;base64,{qr_code}' style="border: 1px solid var(--border); border-radius: 8px; margin: 20px 0;">
+        <div style="background: var(--bg); padding: 16px; border-radius: 8px; margin: 20px 0;">
+          <p><strong>Manual entry code:</strong></p>
+          <code style="font-size: 16px; font-weight: bold; color: var(--primary);">{secret}</code>
+        </div>
+        <a href='/admin/2fa' class="btn-primary" style="display: inline-block; padding: 12px 24px; text-decoration: none; border-radius: 8px;">Continue to Verify →</a>
+      </div>
+    </div>
+    """
+    
+    return render_template_string(THEME_HEADER + setup_template, qr_code=encoded, secret=data['2fa_secret'])
+
 @app.route("/logout")
 @login_required
 def logout():
     logout_user()
     return redirect(url_for("login"))
+
+@app.route("/admin/logout")
+@login_required
+def admin_logout():
+    logout_user()
+    return redirect(url_for("admin_login"))
+
+@app.route("/admin/dashboard")
+@login_required
+@admin_required
+def admin_dashboard():
+    with get_db_connection() as conn:
+        cursor = conn.cursor()
+        
+        # Get app configuration
+        cursor.execute("SELECT key, value FROM app_config")
+        config = {row[0]: row[1] for row in cursor.fetchall()}
+        
+        # Get user count
+        cursor.execute("SELECT COUNT(*) FROM users")
+        user_count = cursor.fetchone()[0]
+        
+        # Get admin count
+        cursor.execute("SELECT COUNT(*) FROM admins")
+        admin_count = cursor.fetchone()[0]
+        
+        # Get recent activity (last 10 users)
+        cursor.execute("SELECT username, last_login FROM users ORDER BY last_login DESC LIMIT 10")
+        recent_users = cursor.fetchall()
+        
+        # Get all admins (for super admin)
+        admins = []
+        if current_user.role == "Super Admin":
+            cursor.execute("SELECT username, role, email, last_login FROM admins ORDER BY username")
+            admins = cursor.fetchall()
+    
+    return render_template_string(THEME_HEADER + ADMIN_DASHBOARD_TEMPLATE, 
+                                config=config, 
+                                user_count=user_count,
+                                admin_count=admin_count,
+                                recent_users=recent_users,
+                                admins=admins,
+                                current_admin=current_user)
+
+@app.route("/admin/config", methods=["POST"])
+@login_required
+@admin_required
+def update_config():
+    if current_user.role not in ["Super Admin", "Admin"]:
+        flash("Insufficient permissions to modify configuration", "error")
+        return redirect(url_for("admin_dashboard"))
+    
+    with get_db_connection() as conn:
+        cursor = conn.cursor()
+        
+        # Update configuration values
+        for key in ["app_name", "max_protocols_per_user"]:
+            value = request.form.get(key)
+            if value:
+                cursor.execute('''
+                    INSERT OR REPLACE INTO app_config (key, value, updated_at)
+                    VALUES (?, ?, CURRENT_TIMESTAMP)
+                ''', (key, value))
+        
+        # Handle boolean configs
+        for key in ["email_reminders_enabled", "registration_enabled", "data_export_enabled", "analytics_enabled"]:
+            value = "true" if request.form.get(key) == "on" else "false"
+            cursor.execute('''
+                INSERT OR REPLACE INTO app_config (key, value, updated_at)
+                VALUES (?, ?, CURRENT_TIMESTAMP)
+            ''', (key, value))
+        
+        conn.commit()
+    
+    flash("Configuration updated successfully!", "success")
+    return redirect(url_for("admin_dashboard"))
+
+@app.route("/admin/delete_admin/<username>", methods=["POST"])
+@login_required
+@super_admin_required
+def delete_admin(username):
+    if username == current_user.username:
+        flash("Cannot delete your own admin account", "error")
+        return redirect(url_for("admin_dashboard"))
+    
+    with get_db_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute("DELETE FROM admins WHERE username = ?", (username,))
+        conn.commit()
+    
+    flash(f"Admin '{username}' deleted successfully", "success")
+    return redirect(url_for("admin_dashboard"))
 
 @app.route("/")
 @login_required
@@ -769,7 +1065,175 @@ AUTH_TEMPLATE = """
     <div class="nav-links" style="justify-content: center; margin-top: 24px;">
       <a href="/login">Login</a>
       <a href="/register">Register</a>
+      <a href="/admin/login">Admin Login</a>
     </div>
+  </div>
+</div>
+"""
+
+ADMIN_AUTH_TEMPLATE = """
+<div class="container">
+  <div class="card" style="max-width: 400px; margin: 80px auto;">
+    <h2>👑 {{title}}</h2>
+    <form method="POST">
+      <div class="form-group">
+        <label>Username</label>
+        <input name="username" required>
+      </div>
+      <div class="form-group">
+        <label>Password</label>
+        <input type="password" name="password" required>
+      </div>
+      {% if 'Register' in title %}
+      <div class="form-group">
+        <label>Role</label>
+        <select name="role" required>
+          <option value="Operator">Operator</option>
+          <option value="Admin" selected>Admin</option>
+          <option value="Super Admin">Super Admin</option>
+        </select>
+      </div>
+      {% endif %}
+      <button type="submit" class="btn-primary">{{title}}</button>
+    </form>
+    <div class="nav-links" style="justify-content: center; margin-top: 24px;">
+      <a href="/admin/login">Admin Login</a>
+      <a href="/admin/register">Admin Register</a>
+      <a href="/login">User Login</a>
+    </div>
+  </div>
+</div>
+"""
+
+ADMIN_DASHBOARD_TEMPLATE = """
+<div class="container">
+  <div class="card">
+    <h1>👑 Admin Dashboard</h1>
+    <p>Welcome, <strong>{{current_admin.username}}</strong> ({{current_admin.role}})!</p>
+    <div class="nav-links">
+      <a href="/admin/logout">🚪 Logout</a>
+      <a href="/admin/2fa_setup">🔒 2FA Setup</a>
+    </div>
+  </div>
+
+  <div class="card">
+    <h2>📊 System Overview</h2>
+    <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 16px;">
+      <div style="background: var(--bg); padding: 16px; border-radius: 8px; text-align: center;">
+        <h3 style="margin: 0; color: var(--primary);">{{user_count}}</h3>
+        <p style="margin: 8px 0 0 0;">Total Users</p>
+      </div>
+      <div style="background: var(--bg); padding: 16px; border-radius: 8px; text-align: center;">
+        <h3 style="margin: 0; color: var(--success);">{{admin_count}}</h3>
+        <p style="margin: 8px 0 0 0;">Total Admins</p>
+      </div>
+    </div>
+  </div>
+
+  {% if current_admin.role in ['Super Admin', 'Admin'] %}
+  <div class="card">
+    <h2>⚙️ App Configuration</h2>
+    <form method="POST" action="/admin/config">
+      <div style="display: grid; gap: 16px;">
+        <div class="form-group">
+          <label>App Name</label>
+          <input name="app_name" value="{{config.get('app_name', '')}}" required>
+        </div>
+        <div class="form-group">
+          <label>Max Protocols Per User</label>
+          <input name="max_protocols_per_user" type="number" value="{{config.get('max_protocols_per_user', '10')}}" required>
+        </div>
+        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 16px;">
+          <label style="display: flex; align-items: center; gap: 8px;">
+            <input type="checkbox" name="email_reminders_enabled" {% if config.get('email_reminders_enabled') == 'true' %}checked{% endif %}>
+            Email Reminders Enabled
+          </label>
+          <label style="display: flex; align-items: center; gap: 8px;">
+            <input type="checkbox" name="registration_enabled" {% if config.get('registration_enabled') == 'true' %}checked{% endif %}>
+            Registration Enabled
+          </label>
+          <label style="display: flex; align-items: center; gap: 8px;">
+            <input type="checkbox" name="data_export_enabled" {% if config.get('data_export_enabled') == 'true' %}checked{% endif %}>
+            Data Export Enabled
+          </label>
+          <label style="display: flex; align-items: center; gap: 8px;">
+            <input type="checkbox" name="analytics_enabled" {% if config.get('analytics_enabled') == 'true' %}checked{% endif %}>
+            Analytics Enabled
+          </label>
+        </div>
+      </div>
+      <button type="submit" class="btn-success">💾 Save Configuration</button>
+    </form>
+  </div>
+  {% endif %}
+
+  {% if current_admin.role == 'Super Admin' %}
+  <div class="card">
+    <h2>👥 Admin Management</h2>
+    <div class="nav-links" style="margin-bottom: 24px;">
+      <a href="/admin/register" class="btn-primary">➕ Add New Admin</a>
+    </div>
+    
+    {% if admins %}
+      <table>
+        <thead>
+          <tr>
+            <th>Username</th>
+            <th>Role</th>
+            <th>Email</th>
+            <th>Last Login</th>
+            <th>Actions</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for admin in admins %}
+          <tr>
+            <td><strong>{{admin[0]}}</strong></td>
+            <td>
+              <span class="status-badge {{ 'status-success' if admin[1] == 'Super Admin' else 'status-info' if admin[1] == 'Admin' else 'status-warning' }}">
+                {{admin[1]}}
+              </span>
+            </td>
+            <td>{{admin[2] or 'Not set'}}</td>
+            <td>{{admin[3] or 'Never'}}</td>
+            <td>
+              {% if admin[0] != current_admin.username %}
+              <form method="POST" action="/admin/delete_admin/{{admin[0]}}" style="display: inline;"
+                    onsubmit="return confirm('Delete admin {{admin[0]}}?')">
+                <button type="submit" class="btn-danger btn-small">🗑️ Delete</button>
+              </form>
+              {% endif %}
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    {% endif %}
+  </div>
+  {% endif %}
+
+  <div class="card">
+    <h2>👤 Recent User Activity</h2>
+    {% if recent_users %}
+      <table>
+        <thead>
+          <tr>
+            <th>Username</th>
+            <th>Last Login</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for user in recent_users %}
+          <tr>
+            <td>{{user[0]}}</td>
+            <td>{{user[1] or 'Never'}}</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    {% else %}
+      <p style="text-align: center; color: #6b7280; margin: 40px 0;">No user activity yet.</p>
+    {% endif %}
   </div>
 </div>
 """
