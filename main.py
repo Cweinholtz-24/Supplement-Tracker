@@ -1015,35 +1015,41 @@ def enhanced_tracking(name):
                                 name=name, log=prot["logs"].get(today, {}), today=today)
 
 
-import smtplib
-from email.mime.text import MIMEText
+from sendgrid import SendGridAPIClient
+from sendgrid.helpers.mail import Mail
 from flask import flash
 
 def send_email(to_email, subject, body):
-    # Use environment variables for SMTP configuration
-    smtp_server = os.getenv("SMTP_SERVER", "smtp.gmail.com")
-    smtp_port = int(os.getenv("SMTP_PORT", "587"))
-    from_email = os.getenv("SMTP_FROM_EMAIL", "")
-    password = os.getenv("SMTP_PASSWORD", "")
+    # Use environment variables for SendGrid configuration
+    api_key = os.getenv("SENDGRID_API_KEY", "")
+    from_email = os.getenv("SENDGRID_FROM_EMAIL", "")
 
-    if not from_email or not password:
-        flash("Email configuration not set up. Please configure SMTP settings.", "error")
+    if not api_key or not from_email:
+        print("❌ SendGrid configuration missing. Please set SENDGRID_API_KEY and SENDGRID_FROM_EMAIL in Secrets.")
+        flash("Email configuration not set up. Please configure SendGrid settings in Secrets.", "error")
         return False
 
-    msg = MIMEText(body)
-    msg["Subject"] = subject
-    msg["From"] = from_email
-    msg["To"] = to_email
-
     try:
-        with smtplib.SMTP(smtp_server, smtp_port) as server:
-            server.starttls()
-            server.login(from_email, password)
-            server.send_message(msg)
-            print("📧 Email sent to", to_email)
+        message = Mail(
+            from_email=from_email,
+            to_emails=to_email,
+            subject=subject,
+            plain_text_content=body
+        )
+
+        sg = SendGridAPIClient(api_key=api_key)
+        response = sg.send(message)
+        
+        if response.status_code == 202:
+            print(f"📧 Email sent successfully to {to_email}")
             return True
+        else:
+            print(f"❌ SendGrid error: Status {response.status_code}")
+            flash(f"Email sending failed with status {response.status_code}", "error")
+            return False
+
     except Exception as e:
-        print("❌ Email error:", e)
+        print(f"❌ SendGrid error: {str(e)}")
         flash(f"Failed to send email: {str(e)}", "error")
         return False
 
