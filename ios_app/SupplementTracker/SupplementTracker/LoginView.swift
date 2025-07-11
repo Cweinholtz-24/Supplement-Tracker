@@ -10,7 +10,6 @@ import SwiftUI
 
 struct LoginView: View {
     @EnvironmentObject var apiService: APIService
-    @Binding var isLoggedIn: Bool
     
     @State private var username = ""
     @State private var password = ""
@@ -92,7 +91,8 @@ struct LoginView: View {
                 
                 switch result {
                 case .success:
-                    isLoggedIn = true
+                    // APIService already sets isAuthenticated = true
+                    break
                 case .failure(let error):
                     errorMessage = error.localizedDescription
                 }
@@ -103,7 +103,7 @@ struct LoginView: View {
 
 struct LoginView_Previews: PreviewProvider {
     static var previews: some View {
-        LoginView(isLoggedIn: .constant(false))
+        LoginView()
             .environmentObject(APIService())
     }
 }

@@ -10,14 +10,13 @@ import SwiftUI
 
 struct ContentView: View {
     @StateObject private var apiService = APIService()
-    @State private var isLoggedIn = false
     
     var body: some View {
-        if isLoggedIn {
+        if apiService.isAuthenticated {
             DashboardView()
                 .environmentObject(apiService)
         } else {
-            LoginView(isLoggedIn: $isLoggedIn)
+            LoginView()
                 .environmentObject(apiService)
         }
     }
