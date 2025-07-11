@@ -84,7 +84,7 @@ struct LoginView: View {
                             .keyboardType(.numberPad)
                             .multilineTextAlignment(.center)
                             .font(.title2)
-                            .onChange(of: twoFACode) { newValue in
+                            .onChange(of: twoFACode) { oldValue, newValue in
                                 // Limit to 6 digits
                                 if newValue.count > 6 {
                                     twoFACode = String(newValue.prefix(6))

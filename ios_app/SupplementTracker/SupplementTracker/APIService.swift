@@ -101,7 +101,7 @@ class APIService: ObservableObject {
                 do {
                     let loginResponse = try JSONDecoder().decode(LoginResponse.self, from: data)
                     
-                    if loginResponse.requires2FA {
+                    if loginResponse.requires2FA == true {
                         DispatchQueue.main.async {
                             self.requires2FA = true
                             self.pendingUsername = username

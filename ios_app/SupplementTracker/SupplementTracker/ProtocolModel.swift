@@ -16,15 +16,6 @@ struct ProtocolModel: Identifiable, Codable {
     let description: String
     let createdAt: String?
 
-    init(id: String, name: String, compounds: [String], frequency: String = "Daily", description: String = "", createdAt: String? = nil) {
-        self.id = id
-        self.name = name
-        self.compounds = compounds
-        self.frequency = frequency
-        self.description = description
-        self.createdAt = createdAt
-    }
-
     enum CodingKeys: String, CodingKey {
         case id, name, compounds, frequency, description, createdAt
     }

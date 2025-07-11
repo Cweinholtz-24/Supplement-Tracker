@@ -1,4 +1,3 @@
-
 //
 //  DashboardView.swift
 //  SupplementTracker
@@ -67,7 +66,7 @@ struct DashboardView: View {
                 Text("Protocols")
             }
             .tag(0)
-            
+
             // Analytics Tab
             AnalyticsTabView()
                 .tabItem {
@@ -75,7 +74,7 @@ struct DashboardView: View {
                     Text("Analytics")
                 }
                 .tag(1)
-            
+
             // Calendar Tab
             CalendarTabView()
                 .tabItem {
@@ -83,7 +82,7 @@ struct DashboardView: View {
                     Text("Calendar")
                 }
                 .tag(2)
-            
+
             // Settings Tab
             SettingsTabView()
                 .tabItem {
@@ -126,7 +125,7 @@ struct DashboardView: View {
             }
         }
     }
-    
+
     private func fetchNotifications() {
         apiService.fetchNotifications { result in
             switch result {
@@ -142,24 +141,24 @@ struct DashboardView: View {
 
 struct EmptyStateView: View {
     let onCreateProtocol: () -> Void
-    
+
     var body: some View {
         VStack(spacing: 24) {
             Image(systemName: "pills.circle")
                 .font(.system(size: 80))
                 .foregroundColor(.gray)
-            
+
             VStack(spacing: 8) {
                 Text("No Protocols Yet")
                     .font(.title2)
                     .fontWeight(.semibold)
-                
+
                 Text("Create your first supplement protocol to start tracking")
                     .font(.body)
                     .foregroundColor(.secondary)
                     .multilineTextAlignment(.center)
             }
-            
+
             Button(action: onCreateProtocol) {
                 Text("Create Protocol")
                     .fontWeight(.semibold)
@@ -183,7 +182,7 @@ struct CreateProtocolView: View {
     @State private var isLoading = false
     @State private var errorMessage = ""
     @State private var showingError = false
-    
+
     let onProtocolCreated: (ProtocolModel) -> Void
 
     var body: some View {
@@ -192,7 +191,7 @@ struct CreateProtocolView: View {
                 Section(header: Text("Protocol Details")) {
                     TextField("Protocol Name", text: $protocolName)
                 }
-                
+
                 Section(header: Text("Compounds")) {
                     ForEach(compounds.indices, id: \.self) { index in
                         HStack {
@@ -205,7 +204,7 @@ struct CreateProtocolView: View {
                             }
                         }
                     }
-                    
+
                     Button(action: addCompound) {
                         HStack {
                             Image(systemName: "plus.circle.fill")
@@ -242,19 +241,19 @@ struct CreateProtocolView: View {
             Text(errorMessage)
         }
     }
-    
+
     private func addCompound() {
         compounds.append("")
     }
-    
+
     private func removeCompound(at index: Int) {
         compounds.remove(at: index)
     }
-    
+
     private func createProtocol() {
         isLoading = true
         let filteredCompounds = compounds.filter { !$0.isEmpty }
-        
+
         apiService.createProtocol(name: protocolName, compounds: filteredCompounds) { result in
             DispatchQueue.main.async {
                 isLoading = false
@@ -295,7 +294,7 @@ struct AnalyticsTabView: View {
                         }
                         .pickerStyle(MenuPickerStyle())
                         .padding(.horizontal)
-                        
+
                         if isLoading {
                             ProgressView("Loading analytics...")
                                 .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -322,7 +321,7 @@ struct AnalyticsTabView: View {
             }
         }
     }
-    
+
     private func fetchProtocols() {
         apiService.fetchProtocols { result in
             DispatchQueue.main.async {
@@ -338,7 +337,7 @@ struct AnalyticsTabView: View {
             }
         }
     }
-    
+
     private func fetchAnalytics(for protocolId: String) {
         isLoading = true
         apiService.fetchProtocolAnalytics(protocolId: protocolId) { result in
@@ -357,7 +356,7 @@ struct AnalyticsTabView: View {
 
 struct AnalyticsDetailView: View {
     let analytics: AnalyticsModel
-    
+
     var body: some View {
         VStack(spacing: 20) {
             // Summary Cards
@@ -371,13 +370,13 @@ struct AnalyticsDetailView: View {
                 AnalyticsCard(title: "Missed Days", value: "\(analytics.missedDays)", color: .red)
             }
             .padding(.horizontal)
-            
+
             // Compound Stats
             VStack(alignment: .leading, spacing: 12) {
                 Text("Compound Statistics")
                     .font(.headline)
                     .padding(.horizontal)
-                
+
                 ForEach(Array(analytics.compoundStats.keys), id: \.self) { compound in
                     if let stats = analytics.compoundStats[compound] {
                         CompoundStatsRow(compound: compound, stats: stats)
@@ -392,7 +391,7 @@ struct AnalyticsCard: View {
     let title: String
     let value: String
     let color: Color
-    
+
     var body: some View {
         VStack(spacing: 8) {
             Text(title)
@@ -413,7 +412,7 @@ struct AnalyticsCard: View {
 struct CompoundStatsRow: View {
     let compound: String
     let stats: CompoundStats
-    
+
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
             HStack {
@@ -426,10 +425,10 @@ struct CompoundStatsRow: View {
                     .fontWeight(.semibold)
                     .foregroundColor(stats.percentage >= 80 ? .green : stats.percentage >= 60 ? .orange : .red)
             }
-            
+
             ProgressView(value: stats.percentage / 100.0)
                 .progressViewStyle(LinearProgressViewStyle(tint: stats.percentage >= 80 ? .green : stats.percentage >= 60 ? .orange : .red))
-            
+
             HStack {
                 Text("Taken: \(stats.taken)")
                     .font(.caption)
@@ -461,25 +460,25 @@ struct SettingsTabView: View {
     @State private var showingLogoutAlert = false
     @State private var notificationsEnabled = true
     @State private var reminderTime = Date()
-    
+
     var body: some View {
         NavigationView {
             Form {
                 Section(header: Text("Notifications")) {
                     Toggle("Enable Notifications", isOn: $notificationsEnabled)
-                    
+
                     if notificationsEnabled {
                         DatePicker("Daily Reminder", selection: $reminderTime, displayedComponents: .hourAndMinute)
                     }
                 }
-                
+
                 Section(header: Text("Account")) {
                     Button("Logout") {
                         showingLogoutAlert = true
                     }
                     .foregroundColor(.red)
                 }
-                
+
                 Section(header: Text("About")) {
                     HStack {
                         Text("Version")
@@ -505,7 +504,7 @@ struct SettingsTabView: View {
 struct NotificationsView: View {
     @Environment(\.dismiss) private var dismiss
     @EnvironmentObject var apiService: APIService
-    
+
     var body: some View {
         NavigationView {
             List {
@@ -535,27 +534,27 @@ struct NotificationsView: View {
 struct NotificationRowView: View {
     let notification: NotificationModel
     @EnvironmentObject var apiService: APIService
-    
+
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
             HStack {
                 Text(notification.title)
                     .font(.headline)
                     .fontWeight(notification.isRead ? .medium : .bold)
-                
+
                 Spacer()
-                
+
                 if !notification.isRead {
                     Circle()
                         .fill(Color.blue)
                         .frame(width: 8, height: 8)
                 }
             }
-            
+
             Text(notification.message)
                 .font(.body)
                 .foregroundColor(.secondary)
-            
+
             Text(formatDate(notification.createdAt))
                 .font(.caption)
                 .foregroundColor(.secondary)
@@ -566,8 +565,8 @@ struct NotificationRowView: View {
                 apiService.markNotificationAsRead(notificationId: notification.id) { _ in }
             }
         }
-    }
-    
+    }    
+
     private func formatDate(_ dateString: String) -> String {
         let formatter = DateFormatter()
         formatter.dateFormat = "yyyy-MM-dd HH:mm:ss"
@@ -583,17 +582,17 @@ struct NotificationRowView: View {
 
 struct ProtocolRowView: View {
     let protocolItem: ProtocolModel
-    
+
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
             Text(protocolItem.name)
                 .font(.headline)
                 .fontWeight(.semibold)
-            
+
             Text("\(protocolItem.compounds.count) compounds • \(protocolItem.frequency)")
                 .font(.caption)
                 .foregroundColor(.secondary)
-            
+
             if !protocolItem.description.isEmpty {
                 Text(protocolItem.description)
                     .font(.caption)
