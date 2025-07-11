@@ -1,11 +1,12 @@
 import os, json, io, base64
-from flask import Flask, render_template_string, request, redirect, url_for, session, jsonify
+from flask import Flask, render_template_string, request, redirect, url_for, session, jsonify, Response
 from flask_login import LoginManager, login_user, logout_user, login_required, UserMixin, current_user
 from werkzeug.security import generate_password_hash, check_password_hash
 from datetime import date, datetime
 from pathlib import Path
 import pyotp
 import qrcode
+import csv
 
 app = Flask(__name__)
 app.secret_key = "super_secure_key"
@@ -141,7 +142,7 @@ def create_protocol():
         return "Protocol name is required", 400
     if len(name) > 50:
         return "Protocol name too long", 400
-    
+
     data = load_data()
     if name not in data["protocols"]:
         data["protocols"][name] = {
@@ -229,13 +230,120 @@ def reminder(name):
     logs = data["protocols"][name]["logs"]
     last = sorted(logs.keys())[-1] if logs else None
     days_since = (date.today() - datetime.strptime(last, "%Y-%m-%d").date()).days if last else "N/A"
-    msg = f"Reminder: Log today’s dose for '{name}'\\nLast log: {last} ({days_since} days ago)"
+    msg = f"Reminder: Log today's dose for '{name}'\\nLast log: {last} ({days_since} days ago)"
 
     email = data.get("email", "")
     if email:
         send_email(email, f"Reminder: {name}", msg)
 
     return f"<pre>{msg}</pre><a href='/protocol/{name}'>← Back</a>"
+
+@app.route("/protocol/<name>/analytics")
+@login_required
+def analytics(name):
+    data = load_data()
+    prot = data["protocols"][name]
+    logs = prot["logs"]
+
+    # Calculate analytics
+    total_days = len(logs)
+    if total_days == 0:
+        return render_template_string(THEME_HEADER + ANALYTICS_TEMPLATE, 
+                                    name=name, total_days=0, adherence=0, streak=0, 
+                                    missed_days=0, compound_stats={})
+
+    adherence_data = []
+    compound_stats = {}
+
+    for compound in prot["compounds"]:
+        taken_count = sum(1 for day_log in logs.values() 
+                         if day_log.get(compound, {}).get("taken", False))
+        compound_stats[compound] = {
+            "taken": taken_count,
+            "missed": total_days - taken_count,
+            "percentage": round((taken_count / total_days) * 100, 1)
+        }
+
+    # Calculate overall adherence
+    total_possible = total_days * len(prot["compounds"])
+    total_taken = sum(sum(1 for entry in day_log.values() if entry.get("taken", False)) 
+                     for day_log in logs.values())
+    overall_adherence = round((total_taken / total_possible) * 100, 1) if total_possible > 0 else 0
+
+    # Calculate current streak
+    sorted_dates = sorted(logs.keys(), reverse=True)
+    current_streak = 0
+    for date_str in sorted_dates:
+        day_log = logs[date_str]
+        all_taken = all(entry.get("taken", False) for entry in day_log.values())
+        if all_taken:
+            current_streak += 1
+        else:
+            break
+
+    # Missed days
+    missed_days = sum(1 for day_log in logs.values() 
+                     if not all(entry.get("taken", False) for entry in day_log.values()))
+
+    return render_template_string(THEME_HEADER + ANALYTICS_TEMPLATE,
+                                name=name, total_days=total_days, adherence=overall_adherence,
+                                streak=current_streak, missed_days=missed_days,
+                                compound_stats=compound_stats)
+
+@app.route("/protocol/<name>/export/csv")
+@login_required
+def export_csv(name):
+    data = load_data()
+    prot = data["protocols"][name]
+
+    output = io.StringIO()
+    writer = csv.writer(output)
+
+    # Headers
+    headers = ["Date"] + prot["compounds"] + [f"{c}_Notes" for c in prot["compounds"]]
+    writer.writerow(headers)
+
+    # Data rows
+    for date_str, day_log in sorted(prot["logs"].items()):
+        row = [date_str]
+        for compound in prot["compounds"]:
+            entry = day_log.get(compound, {})
+            row.append("Yes" if entry.get("taken", False) else "No")
+        for compound in prot["compounds"]:
+            entry = day_log.get(compound, {})
+            row.append(entry.get("note", ""))
+        writer.writerow(row)
+
+    output.seek(0)
+    return Response(
+        output.getvalue(),
+        mimetype="text/csv",
+        headers={"Content-Disposition": f"attachment; filename={name}_data.csv"}
+    )
+
+@app.route("/protocol/<name>/enhanced_tracking", methods=["GET", "POST"])
+@login_required
+def enhanced_tracking(name):
+    today = date.today().isoformat()
+    data = load_data()
+    prot = data["protocols"][name]
+
+    if request.method == "POST":
+        if today not in prot["logs"]:
+            prot["logs"][today] = {}
+
+        # Enhanced tracking data
+        prot["logs"][today]["mood"] = request.form.get("mood", "")
+        prot["logs"][today]["energy"] = request.form.get("energy", "")
+        prot["logs"][today]["side_effects"] = request.form.get("side_effects", "")
+        prot["logs"][today]["weight"] = request.form.get("weight", "")
+        prot["logs"][today]["notes"] = request.form.get("general_notes", "")
+
+        save_data(data)
+        return redirect(url_for("enhanced_tracking", name=name))
+
+    return render_template_string(THEME_HEADER + ENHANCED_TRACKING_TEMPLATE,
+                                name=name, log=prot["logs"].get(today, {}), today=today)
 
 
 import smtplib
@@ -563,6 +671,9 @@ DASHBOARD_TEMPLATE = """
                 <a href="/protocol/{{p}}">📝 Track</a>
                 <a href="/protocol/{{p}}/history">📊 History</a>
                 <a href="/protocol/{{p}}/calendar">📅 Calendar</a>
+                <a href="/protocol/{{p}}/analytics">📈 Analytics</a>
+                <a href="/protocol/{{p}}/export/csv">Export CSV</a>
+                <a href="/protocol/{{p}}/enhanced_tracking">Enhanced Tracking</a>
               </div>
             </div>
             <form method="POST" action="/delete_protocol/{{p}}" 
@@ -590,6 +701,9 @@ TRACKER_TEMPLATE = """
       <a href="/protocol/{{name}}/history">📊 History</a>
       <a href="/protocol/{{name}}/calendar">📅 Calendar</a>
       <a href="/protocol/{{name}}/reminder">📧 Send Reminder</a>
+      <a href="/protocol/{{name}}/analytics">📈 Analytics</a>
+      <a href="/protocol/{{name}}/export/csv">Export CSV</a>
+      <a href="/protocol/{{name}}/enhanced_tracking">Enhanced Tracking</a>
     </div>
   </div>
 
@@ -601,7 +715,7 @@ TRACKER_TEMPLATE = """
         <input name="email" value="{{email}}" type="email" 
                placeholder="your@email.com" style="width: 300px;">
       </div>
-      
+
       <table>
         <tr>
           <th>💊 Compound</th>
@@ -622,7 +736,7 @@ TRACKER_TEMPLATE = """
           </tr>
         {% endfor %}
       </table>
-      
+
       <button type="submit" class="btn-success">💾 Save Today's Log</button>
     </form>
   </div>
@@ -648,6 +762,9 @@ HIST_TEMPLATE = """
     <div class="nav-links">
       <a href="/protocol/{{name}}">← Back to Tracking</a>
       <a href="/protocol/{{name}}/calendar">📅 Calendar View</a>
+      <a href="/protocol/{{name}}/analytics">📈 Analytics</a>
+      <a href="/protocol/{{name}}/export/csv">Export CSV</a>
+      <a href="/protocol/{{name}}/enhanced_tracking">Enhanced Tracking</a>
     </div>
   </div>
 
@@ -703,6 +820,88 @@ document.addEventListener('DOMContentLoaded', function() {
   calendar.render();
 });
 </script>
+"""
+
+ANALYTICS_TEMPLATE = """
+<div class="container">
+    <div class="card">
+        <h1>📈 Analytics for {{name}}</h1>
+        <div class="nav-links">
+            <a href="/protocol/{{name}}">← Back to Tracking</a>
+        </div>
+    </div>
+
+    <div class="card">
+        <h2>📊 Summary</h2>
+        <p><strong>Total Days Tracked:</strong> {{total_days}}</p>
+        <p><strong>Overall Adherence:</strong> {{adherence}}%</p>
+        <p><strong>Current Streak:</strong> {{streak}} days</p>
+        <p><strong>Missed Days:</strong> {{missed_days}}</p>
+    </div>
+
+    <div class="card">
+        <h2>💊 Compound Statistics</h2>
+        <table>
+            <thead>
+                <tr>
+                    <th>Compound</th>
+                    <th>Taken</th>
+                    <th>Missed</th>
+                    <th>Adherence (%)</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for compound, stats in compound_stats.items() %}
+                <tr>
+                    <td>{{compound}}</td>
+                    <td>{{stats.taken}}</td>
+                    <td>{{stats.missed}}</td>
+                    <td>{{stats.percentage}}%</td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</div>
+"""
+
+ENHANCED_TRACKING_TEMPLATE = """
+<div class="container">
+    <div class="card">
+        <h1>Enhanced Tracking for {{name}} - {{today}}</h1>
+        <div class="nav-links">
+            <a href="/protocol/{{name}}">← Back to Tracking</a>
+            <a href="/protocol/{{name}}/analytics">📈 Analytics</a>
+            <a href="/protocol/{{name}}/export/csv">Export CSV</a>
+        </div>
+    </div>
+
+    <div class="card">
+        <form method="POST">
+            <div class="form-group">
+                <label>Mood</label>
+                <input type="text" name="mood" value="{{ log.get('mood', '') }}" placeholder="Enter your mood">
+            </div>
+            <div class="form-group">
+                <label>Energy Level</label>
+                <input type="text" name="energy" value="{{ log.get('energy', '') }}" placeholder="Enter your energy level">
+            </div>
+            <div class="form-group">
+                <label>Side Effects</label>
+                <input type="text" name="side_effects" value="{{ log.get('side_effects', '') }}" placeholder="Any side effects?">
+            </div>
+             <div class="form-group">
+                <label>Weight</label>
+                <input type="text" name="weight" value="{{ log.get('weight', '') }}" placeholder="Enter your weight">
+            </div>
+            <div class="form-group">
+                <label>General Notes</label>
+                <textarea name="general_notes" rows="4" placeholder="General notes about today">{{ log.get('notes', '') }}</textarea>
+            </div>
+            <button type="submit" class="btn-success">Save Enhanced Log</button>
+        </form>
+    </div>
+</div>
 """
 
 if __name__ == "__main__":
