@@ -86,30 +86,6 @@ struct DashboardView: View {
     }
 }
 
-struct ProtocolRowView: View {
-    let protocolItem: ProtocolModel
-    
-    var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Text(protocolItem.name)
-                .font(.headline)
-                .fontWeight(.semibold)
-            
-            Text("\(protocolItem.compounds.count) compounds • \(protocolItem.frequency)")
-                .font(.subheadline)
-                .foregroundColor(.secondary)
-            
-            if !protocolItem.description.isEmpty {
-                Text(protocolItem.description)
-                    .font(.caption)
-                    .foregroundColor(.secondary)
-                    .lineLimit(2)
-            }
-        }
-        .padding(.vertical, 4)
-    }
-}
-
 #Preview {
     DashboardView()
         .environmentObject(APIService.shared)
