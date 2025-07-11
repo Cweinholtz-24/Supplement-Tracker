@@ -777,6 +777,7 @@ def admin_dashboard():
     with get_db_connection() as conn:
         cursor = conn.cursor()
 
+        ```python
         # Get app configuration
         cursor.execute("SELECT key, value FROM app_config")
         config = {row[0]: row[1] for row in cursor.fetchall()}
@@ -1610,7 +1611,7 @@ document.addEventListener('DOMContentLoaded', () => {
   btn.onclick = () => {
     document.body.classList.toggle('dark');
     const isDark = document.body.classList.contains('dark');
-    localStorage.setItem('darkmode', isDark);
+    localStorage.setItem('darkmode',isDark);
     btn.innerHTML = isDark ? "☀️ <span>Light Mode</span>" : "🌙 <span>Dark Mode</span>";
   };
   document.body.appendChild(btn);
