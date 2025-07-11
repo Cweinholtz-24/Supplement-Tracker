@@ -683,7 +683,14 @@ def admin_dashboard():
         # Get all admins (for super admin)
         admins = []
         if current_user.role == "Super Admin":
-            cursor.execute("SELECT username, role, email, last_login FROM admins ORDER BY username")
+            # Add disabled column if it doesn't exist
+            try:
+                cursor.execute("ALTER TABLE admins ADD COLUMN disabled BOOLEAN DEFAULT FALSE")
+                conn.commit()
+            except sqlite3.OperationalError:
+                pass  # Column already exists
+            
+            cursor.execute("SELECT username, role, email, last_login, disabled, id FROM admins ORDER BY username")
             admins = cursor.fetchall()
 
     return render_template_string(THEME_HEADER + ADMIN_DASHBOARD_TEMPLATE, 
@@ -773,6 +780,228 @@ def delete_admin(username):
 
     flash(f"Admin '{username}' deleted successfully", "success")
     return redirect(url_for("admin_dashboard"))
+
+@app.route("/admin/users")
+@login_required
+@admin_required
+def admin_users():
+    with get_db_connection() as conn:
+        cursor = conn.cursor()
+        
+        # Add disabled column if it doesn't exist
+        try:
+            cursor.execute("ALTER TABLE users ADD COLUMN disabled BOOLEAN DEFAULT FALSE")
+            conn.commit()
+        except sqlite3.OperationalError:
+            pass  # Column already exists
+            
+        cursor.execute('''
+            SELECT u.id, u.username, u.email, u.created_at, u.last_login,
+                   COUNT(p.id) as protocol_count, u.disabled
+            FROM users u
+            LEFT JOIN protocols p ON u.id = p.user_id
+            GROUP BY u.id, u.username, u.email, u.created_at, u.last_login, u.disabled
+            ORDER BY u.username
+        ''')
+        users = cursor.fetchall()
+
+    return render_template_string(THEME_HEADER + ADMIN_USERS_TEMPLATE, users=users)
+
+@app.route("/admin/users/<int:user_id>/disable", methods=["POST"])
+@login_required
+@admin_required
+def disable_user(user_id):
+    # For this demo, we'll add a disabled flag to the users table
+    # First, let's add the column if it doesn't exist
+    with get_db_connection() as conn:
+        cursor = conn.cursor()
+        try:
+            cursor.execute("ALTER TABLE users ADD COLUMN disabled BOOLEAN DEFAULT FALSE")
+            conn.commit()
+        except sqlite3.OperationalError:
+            pass  # Column already exists
+
+        cursor.execute("UPDATE users SET disabled = TRUE WHERE id = ?", (user_id,))
+        cursor.execute("SELECT username FROM users WHERE id = ?", (user_id,))
+        username = cursor.fetchone()[0]
+        conn.commit()
+
+    flash(f"User '{username}' disabled successfully", "success")
+    return redirect(url_for("admin_users"))
+
+@app.route("/admin/users/<int:user_id>/enable", methods=["POST"])
+@login_required
+@admin_required
+def enable_user(user_id):
+    with get_db_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute("UPDATE users SET disabled = FALSE WHERE id = ?", (user_id,))
+        cursor.execute("SELECT username FROM users WHERE id = ?", (user_id,))
+        username = cursor.fetchone()[0]
+        conn.commit()
+
+    flash(f"User '{username}' enabled successfully", "success")
+    return redirect(url_for("admin_users"))
+
+@app.route("/admin/users/<int:user_id>/delete", methods=["POST"])
+@login_required
+@admin_required
+def delete_user(user_id):
+    with get_db_connection() as conn:
+        cursor = conn.cursor()
+        
+        # Get username before deletion
+        cursor.execute("SELECT username FROM users WHERE id = ?", (user_id,))
+        username_row = cursor.fetchone()
+        if not username_row:
+            flash("User not found", "error")
+            return redirect(url_for("admin_users"))
+        username = username_row[0]
+        
+        # Delete user data (cascade delete)
+        cursor.execute('''
+            DELETE FROM protocol_logs 
+            WHERE protocol_id IN (SELECT id FROM protocols WHERE user_id = ?)
+        ''', (user_id,))
+        cursor.execute("DELETE FROM protocols WHERE user_id = ?", (user_id,))
+        cursor.execute("DELETE FROM users WHERE id = ?", (user_id,))
+        conn.commit()
+
+    flash(f"User '{username}' and all associated data deleted successfully", "success")
+    return redirect(url_for("admin_users"))
+
+@app.route("/admin/users/<int:user_id>/reset_2fa", methods=["POST"])
+@login_required
+@admin_required
+def reset_user_2fa(user_id):
+    new_secret = pyotp.random_base32()
+    with get_db_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute("UPDATE users SET twofa_secret = ? WHERE id = ?", (new_secret, user_id))
+        cursor.execute("SELECT username FROM users WHERE id = ?", (user_id,))
+        username = cursor.fetchone()[0]
+        conn.commit()
+
+    flash(f"2FA reset for user '{username}'. They will need to set up 2FA again.", "success")
+    return redirect(url_for("admin_users"))
+
+@app.route("/admin/users/<int:user_id>/edit", methods=["GET", "POST"])
+@login_required
+@admin_required
+def edit_user(user_id):
+    with get_db_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute("SELECT username, email FROM users WHERE id = ?", (user_id,))
+        user = cursor.fetchone()
+        if not user:
+            flash("User not found", "error")
+            return redirect(url_for("admin_users"))
+
+        if request.method == "POST":
+            new_email = request.form.get("email", "")
+            new_password = request.form.get("new_password", "").strip()
+            
+            if new_password:
+                cursor.execute("UPDATE users SET email = ?, password_hash = ? WHERE id = ?", 
+                             (new_email, generate_password_hash(new_password), user_id))
+                flash(f"User '{user[0]}' updated with new password", "success")
+            else:
+                cursor.execute("UPDATE users SET email = ? WHERE id = ?", (new_email, user_id))
+                flash(f"User '{user[0]}' email updated", "success")
+            
+            conn.commit()
+            return redirect(url_for("admin_users"))
+
+    return render_template_string(THEME_HEADER + EDIT_USER_TEMPLATE, user=user, user_id=user_id)
+
+@app.route("/admin/admins/<int:admin_id>/disable", methods=["POST"])
+@login_required
+@super_admin_required
+def disable_admin(admin_id):
+    if admin_id == current_user.admin_id:
+        flash("Cannot disable your own admin account", "error")
+        return redirect(url_for("admin_dashboard"))
+
+    # Add disabled column if it doesn't exist
+    with get_db_connection() as conn:
+        cursor = conn.cursor()
+        try:
+            cursor.execute("ALTER TABLE admins ADD COLUMN disabled BOOLEAN DEFAULT FALSE")
+            conn.commit()
+        except sqlite3.OperationalError:
+            pass  # Column already exists
+
+        cursor.execute("UPDATE admins SET disabled = TRUE WHERE id = ?", (admin_id,))
+        cursor.execute("SELECT username FROM admins WHERE id = ?", (admin_id,))
+        username = cursor.fetchone()[0]
+        conn.commit()
+
+    flash(f"Admin '{username}' disabled successfully", "success")
+    return redirect(url_for("admin_dashboard"))
+
+@app.route("/admin/admins/<int:admin_id>/enable", methods=["POST"])
+@login_required
+@super_admin_required
+def enable_admin(admin_id):
+    with get_db_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute("UPDATE admins SET disabled = FALSE WHERE id = ?", (admin_id,))
+        cursor.execute("SELECT username FROM admins WHERE id = ?", (admin_id,))
+        username = cursor.fetchone()[0]
+        conn.commit()
+
+    flash(f"Admin '{username}' enabled successfully", "success")
+    return redirect(url_for("admin_dashboard"))
+
+@app.route("/admin/admins/<int:admin_id>/reset_2fa", methods=["POST"])
+@login_required
+@super_admin_required
+def reset_admin_2fa(admin_id):
+    if admin_id == current_user.admin_id:
+        flash("Cannot reset your own 2FA", "error")
+        return redirect(url_for("admin_dashboard"))
+
+    new_secret = pyotp.random_base32()
+    with get_db_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute("UPDATE admins SET twofa_secret = ? WHERE id = ?", (new_secret, admin_id))
+        cursor.execute("SELECT username FROM admins WHERE id = ?", (admin_id,))
+        username = cursor.fetchone()[0]
+        conn.commit()
+
+    flash(f"2FA reset for admin '{username}'. They will need to set up 2FA again.", "success")
+    return redirect(url_for("admin_dashboard"))
+
+@app.route("/admin/admins/<int:admin_id>/edit", methods=["GET", "POST"])
+@login_required
+@super_admin_required
+def edit_admin(admin_id):
+    with get_db_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute("SELECT username, email, role FROM admins WHERE id = ?", (admin_id,))
+        admin = cursor.fetchone()
+        if not admin:
+            flash("Admin not found", "error")
+            return redirect(url_for("admin_dashboard"))
+
+        if request.method == "POST":
+            new_email = request.form.get("email", "")
+            new_role = request.form.get("role", admin[2])
+            new_password = request.form.get("new_password", "").strip()
+            
+            if new_password:
+                cursor.execute("UPDATE admins SET email = ?, role = ?, password_hash = ? WHERE id = ?", 
+                             (new_email, new_role, generate_password_hash(new_password), admin_id))
+                flash(f"Admin '{admin[0]}' updated with new password", "success")
+            else:
+                cursor.execute("UPDATE admins SET email = ?, role = ? WHERE id = ?", 
+                             (new_email, new_role, admin_id))
+                flash(f"Admin '{admin[0]}' updated", "success")
+            
+            conn.commit()
+            return redirect(url_for("admin_dashboard"))
+
+    return render_template_string(THEME_HEADER + EDIT_ADMIN_TEMPLATE, admin=admin, admin_id=admin_id)
 
 @app.route("/")
 @login_required
@@ -1264,9 +1493,17 @@ ADMIN_DASHBOARD_TEMPLATE = """
   </div>
   {% endif %}
 
+  <div class="card">
+    <h2>👤 User Management</h2>
+    <div class="nav-links" style="margin-bottom: 24px;">
+      <a href="/admin/users" class="btn-primary">👥 Manage Users</a>
+    </div>
+    <p>Manage user accounts, disable/enable users, reset 2FA, and modify user information.</p>
+  </div>
+
   {% if current_admin.role == 'Super Admin' %}
   <div class="card">
-    <h2>👥 Admin Management</h2>
+    <h2>👑 Admin Management</h2>
     <div class="nav-links" style="margin-bottom: 24px;">
       <a href="/admin/register" class="btn-primary">➕ Add New Admin</a>
     </div>
@@ -1278,6 +1515,7 @@ ADMIN_DASHBOARD_TEMPLATE = """
             <th>Username</th>
             <th>Role</th>
             <th>Email</th>
+            <th>Status</th>
             <th>Last Login</th>
             <th>Actions</th>
           </tr>
@@ -1292,13 +1530,33 @@ ADMIN_DASHBOARD_TEMPLATE = """
               </span>
             </td>
             <td>{{admin[2] or 'Not set'}}</td>
+            <td>
+              <span class="status-badge {{ 'status-danger' if admin[4] else 'status-success' }}">
+                {{ 'Disabled' if admin[4] else 'Active' }}
+              </span>
+            </td>
             <td>{{admin[3] or 'Never'}}</td>
             <td>
               {% if admin[0] != current_admin.username %}
-              <form method="POST" action="/admin/delete_admin/{{admin[0]}}" style="display: inline;"
-                    onsubmit="return confirm('Delete admin {{admin[0]}}?')">
-                <button type="submit" class="btn-danger btn-small">🗑️ Delete</button>
-              </form>
+              <div style="display: flex; gap: 4px; flex-wrap: wrap;">
+                <a href="/admin/admins/{{admin[5]}}/edit" class="btn-primary btn-small">✏️ Edit</a>
+                <form method="POST" action="/admin/admins/{{admin[5]}}/reset_2fa" style="display: inline;">
+                  <button type="submit" class="btn-warning btn-small" onclick="return confirm('Reset 2FA for {{admin[0]}}?')">🔄 Reset 2FA</button>
+                </form>
+                {% if admin[4] %}
+                <form method="POST" action="/admin/admins/{{admin[5]}}/enable" style="display: inline;">
+                  <button type="submit" class="btn-success btn-small">✅ Enable</button>
+                </form>
+                {% else %}
+                <form method="POST" action="/admin/admins/{{admin[5]}}/disable" style="display: inline;">
+                  <button type="submit" class="btn-warning btn-small" onclick="return confirm('Disable admin {{admin[0]}}?')">⏸️ Disable</button>
+                </form>
+                {% endif %}
+                <form method="POST" action="/admin/delete_admin/{{admin[0]}}" style="display: inline;"
+                      onsubmit="return confirm('Delete admin {{admin[0]}}? This cannot be undone.')">
+                  <button type="submit" class="btn-danger btn-small">🗑️ Delete</button>
+                </form>
+              </div>
               {% endif %}
             </td>
           </tr>
@@ -1517,6 +1775,24 @@ button:hover {
   padding: 6px 12px; 
   font-size: 12px; 
   border-radius: 6px;
+}
+.btn-warning { 
+  background: var(--warning); 
+  color: white; 
+  border-color: var(--warning);
+}
+.btn-info { 
+  background: var(--info); 
+  color: white; 
+  border-color: var(--info);
+}
+.status-info { 
+  background: var(--info); 
+  color: white;
+}
+.status-warning { 
+  background: var(--warning); 
+  color: white;
 }
 table { 
   width: 100%; 
@@ -2005,6 +2281,145 @@ ENHANCED_TRACKING_TEMPLATE = """
             <button type="submit" class="btn-success">Save Enhanced Log</button>
         </form>
     </div>
+</div>
+"""
+
+ADMIN_USERS_TEMPLATE = """
+<div class="container">
+  <div class="card">
+    <h1>👤 User Management</h1>
+    <div class="nav-links">
+      <a href="/admin/dashboard">← Back to Dashboard</a>
+    </div>
+  </div>
+
+  <div class="card">
+    <h2>👥 All Users</h2>
+    {% if users %}
+      <table>
+        <thead>
+          <tr>
+            <th>Username</th>
+            <th>Email</th>
+            <th>Protocols</th>
+            <th>Status</th>
+            <th>Created</th>
+            <th>Last Login</th>
+            <th>Actions</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for user in users %}
+          <tr>
+            <td><strong>{{user[1]}}</strong></td>
+            <td>{{user[2] or 'Not set'}}</td>
+            <td>{{user[5]}}</td>
+            <td>
+              <span class="status-badge {{ 'status-danger' if user[6] else 'status-success' }}">
+                {{ 'Disabled' if user[6] else 'Active' }}
+              </span>
+            </td>
+            <td>{{user[3][:10] if user[3] else 'Unknown'}}</td>
+            <td>{{user[4][:10] if user[4] else 'Never'}}</td>
+            <td>
+              <div style="display: flex; gap: 4px; flex-wrap: wrap;">
+                <a href="/admin/users/{{user[0]}}/edit" class="btn-primary btn-small">✏️ Edit</a>
+                <form method="POST" action="/admin/users/{{user[0]}}/reset_2fa" style="display: inline;">
+                  <button type="submit" class="btn-warning btn-small" onclick="return confirm('Reset 2FA for {{user[1]}}?')">🔄 Reset 2FA</button>
+                </form>
+                {% if user[6] %}
+                <form method="POST" action="/admin/users/{{user[0]}}/enable" style="display: inline;">
+                  <button type="submit" class="btn-success btn-small">✅ Enable</button>
+                </form>
+                {% else %}
+                <form method="POST" action="/admin/users/{{user[0]}}/disable" style="display: inline;">
+                  <button type="submit" class="btn-warning btn-small" onclick="return confirm('Disable user {{user[1]}}?')">⏸️ Disable</button>
+                </form>
+                {% endif %}
+                <form method="POST" action="/admin/users/{{user[0]}}/delete" style="display: inline;"
+                      onsubmit="return confirm('Delete user {{user[1]}} and all their data? This cannot be undone.')">
+                  <button type="submit" class="btn-danger btn-small">🗑️ Delete</button>
+                </form>
+              </div>
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    {% else %}
+      <p style="text-align: center; color: #6b7280; margin: 40px 0;">No users found.</p>
+    {% endif %}
+  </div>
+</div>
+"""
+
+EDIT_USER_TEMPLATE = """
+<div class="container">
+  <div class="card">
+    <h1>✏️ Edit User: {{user[0]}}</h1>
+    <div class="nav-links">
+      <a href="/admin/users">← Back to Users</a>
+    </div>
+  </div>
+
+  <div class="card">
+    <form method="POST">
+      <div class="form-group">
+        <label>Username</label>
+        <input value="{{user[0]}}" disabled style="background: var(--bg); opacity: 0.7;">
+        <small style="color: var(--text); opacity: 0.7;">Username cannot be changed</small>
+      </div>
+      <div class="form-group">
+        <label>Email</label>
+        <input name="email" type="email" value="{{user[1] or ''}}" placeholder="user@example.com">
+      </div>
+      <div class="form-group">
+        <label>New Password (leave blank to keep current)</label>
+        <input name="new_password" type="password" placeholder="Enter new password">
+        <small style="color: var(--text); opacity: 0.7;">Only enter if you want to change the password</small>
+      </div>
+      <button type="submit" class="btn-success">💾 Save Changes</button>
+    </form>
+  </div>
+</div>
+"""
+
+EDIT_ADMIN_TEMPLATE = """
+<div class="container">
+  <div class="card">
+    <h1>✏️ Edit Admin: {{admin[0]}}</h1>
+    <div class="nav-links">
+      <a href="/admin/dashboard">← Back to Dashboard</a>
+    </div>
+  </div>
+
+  <div class="card">
+    <form method="POST">
+      <div class="form-group">
+        <label>Username</label>
+        <input value="{{admin[0]}}" disabled style="background: var(--bg); opacity: 0.7;">
+        <small style="color: var(--text); opacity: 0.7;">Username cannot be changed</small>
+      </div>
+      <div class="form-group">
+        <label>Email</label>
+        <input name="email" type="email" value="{{admin[1] or ''}}" placeholder="admin@example.com">
+      </div>
+      <div class="form-group">
+        <label>Role</label>
+        <select name="role" required>
+          <option value="Operator" {{ 'selected' if admin[2] == 'Operator' else '' }}>Operator</option>
+          <option value="Admin" {{ 'selected' if admin[2] == 'Admin' else '' }}>Admin</option>
+          <option value="Super Admin" {{ 'selected' if admin[2] == 'Super Admin' else '' }}>Super Admin</option>
+        </select>
+      </div>
+      <div class="form-group">
+        <label>New Password (leave blank to keep current)</label>
+        <input name="new_password" type="password" placeholder="Enter new password">
+        <small style="color: var(--text); opacity: 0.7;">Only enter if you want to change the password</small>
+      </div>
+      <button type="submit" class="btn-success">💾 Save Changes</button>
+    </form>
+  </div>
 </div>
 """
 
