@@ -731,13 +731,34 @@ def create_protocol():
 @app.route("/delete_protocol/<name>", methods=["POST"])
 @login_required
 def delete_protocol(name):
-    data = load_data()
-    if name in data["protocols"]:
-        del data["protocols"][name]
-        save_data(data)
+    with get_db_connection() as conn:
+        cursor = conn.cursor()
+        
+        # Get user ID
+        cursor.execute("SELECT id FROM users WHERE username = ?", (current_user.id,))
+        user_row = cursor.fetchone()
+        if not user_row:
+            flash("User not found", "error")
+            return redirect(url_for("dashboard"))
+        user_id = user_row[0]
+        
+        # Get protocol ID
+        cursor.execute("SELECT id FROM protocols WHERE user_id = ? AND name = ?", (user_id, name))
+        protocol_row = cursor.fetchone()
+        if not protocol_row:
+            flash(f"Protocol '{name}' not found", "error")
+            return redirect(url_for("dashboard"))
+        protocol_id = protocol_row[0]
+        
+        # Delete protocol logs first (foreign key constraint)
+        cursor.execute("DELETE FROM protocol_logs WHERE protocol_id = ?", (protocol_id,))
+        
+        # Delete the protocol
+        cursor.execute("DELETE FROM protocols WHERE id = ?", (protocol_id,))
+        
+        conn.commit()
         flash(f"Protocol '{name}' deleted successfully", "success")
-    else:
-        flash(f"Protocol '{name}' not found", "error")
+    
     return redirect(url_for("dashboard"))
 
 @app.route("/protocol/<name>", methods=["GET", "POST"])
