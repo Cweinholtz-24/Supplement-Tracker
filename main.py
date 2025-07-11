@@ -1,5 +1,5 @@
 import os, json, io, base64, sqlite3, psutil, time, csv
-from flask import Flask, render_template_string, request, redirect, url_for, session, jsonify, Response, flash
+from flask import Flask, render_template_string, request, redirect, url_for, session, jsonify, Response, flash, make_response
 from flask_login import LoginManager, login_user, logout_user, login_required, UserMixin, current_user
 from werkzeug.security import generate_password_hash, check_password_hash
 from datetime import date, datetime, timedelta
@@ -3115,6 +3115,124 @@ EDIT_ADMIN_TEMPLATE = """
   </div>
 </div>
 """
+
+# API Endpoints for iOS App
+@app.route("/api/login", methods=["POST"])
+def api_login():
+    """API endpoint for iOS app login"""
+    data = request.get_json()
+    if not data or not data.get('username') or not data.get('password'):
+        return jsonify({"error": "Username and password required"}), 400
+    
+    username = data['username'].strip().lower()
+    password = data['password']
+    
+    with get_db_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute("SELECT password_hash, disabled FROM users WHERE username = ?", (username,))
+        row = cursor.fetchone()
+        
+        if not row:
+            return jsonify({"error": "Invalid credentials"}), 401
+        
+        if row[1]:  # disabled
+            return jsonify({"error": "Account disabled"}), 401
+        
+        if not check_password_hash(row[0], password):
+            return jsonify({"error": "Invalid credentials"}), 401
+        
+        # For now, return success without actual JWT token
+        # In production, you'd want to implement proper JWT authentication
+        return jsonify({
+            "success": True,
+            "message": "Login successful",
+            "user": {"username": username}
+        }), 200
+
+@app.route("/api/protocols", methods=["GET"])
+def api_get_protocols():
+    """API endpoint to get user protocols"""
+    # For now, we'll return dummy data
+    # In production, you'd validate authentication token and fetch user's protocols
+    
+    protocols = [
+        {
+            "id": "1",
+            "name": "Senolytic Stack",
+            "compounds": ["FOXO4-DRI", "Fisetin", "Quercetin"],
+            "createdAt": "2024-01-01T00:00:00Z"
+        },
+        {
+            "id": "2", 
+            "name": "Longevity Protocol",
+            "compounds": ["NMN", "Resveratrol", "Metformin"],
+            "createdAt": "2024-01-01T00:00:00Z"
+        }
+    ]
+    
+    return jsonify(protocols), 200
+
+@app.route("/api/protocols/<protocol_id>/log", methods=["POST"])
+def api_save_protocol_log(protocol_id):
+    """API endpoint to save protocol log"""
+    data = request.get_json()
+    if not data:
+        return jsonify({"error": "No data provided"}), 400
+    
+    compounds = data.get('compounds', {})
+    notes = data.get('notes', {})
+    
+    # For now, just return success
+    # In production, you'd save to database and validate user permissions
+    
+    return jsonify({
+        "success": True,
+        "message": "Protocol log saved successfully"
+    }), 200
+
+@app.route("/api/protocols/<protocol_id>/history", methods=["GET"])
+def api_get_protocol_history(protocol_id):
+    """API endpoint to get protocol history"""
+    # Return dummy history data
+    history = [
+        {
+            "id": "1",
+            "date": "2024-01-01",
+            "compounds": {
+                "FOXO4-DRI": {"taken": True, "note": "Felt good"},
+                "Fisetin": {"taken": True, "note": ""},
+                "Quercetin": {"taken": False, "note": "Forgot to take"}
+            },
+            "mood": "Good",
+            "energy": "High",
+            "sideEffects": "None",
+            "weight": "70kg",
+            "generalNotes": "Great day overall"
+        }
+    ]
+    
+    return jsonify(history), 200
+
+@app.route("/api/user/profile", methods=["GET"])
+def api_get_user_profile():
+    """API endpoint to get user profile"""
+    # Return dummy profile data
+    profile = {
+        "username": "testuser",
+        "email": "test@example.com",
+        "createdAt": "2024-01-01T00:00:00Z",
+        "protocolCount": 2
+    }
+    
+    return jsonify(profile), 200
+
+# Add CORS headers for iOS app
+@app.after_request
+def after_request(response):
+    response.headers.add('Access-Control-Allow-Origin', '*')
+    response.headers.add('Access-Control-Allow-Headers', 'Content-Type,Authorization')
+    response.headers.add('Access-Control-Allow-Methods', 'GET,PUT,POST,DELETE,OPTIONS')
+    return response
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=5000)
