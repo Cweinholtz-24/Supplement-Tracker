@@ -105,6 +105,22 @@ def init_db():
             INSERT OR IGNORE INTO app_config (key, value) 
             VALUES ('max_protocols_per_user', '10')
         ''')
+        cursor.execute('''
+            INSERT OR IGNORE INTO app_config (key, value) 
+            VALUES ('email_reminders_enabled', 'true')
+        ''')
+        cursor.execute('''
+            INSERT OR IGNORE INTO app_config (key, value) 
+            VALUES ('registration_enabled', 'true')
+        ''')
+        cursor.execute('''
+            INSERT OR IGNORE INTO app_config (key, value) 
+            VALUES ('data_export_enabled', 'true')
+        ''')
+        cursor.execute('''
+            INSERT OR IGNORE INTO app_config (key, value) 
+            VALUES ('analytics_enabled', 'true')
+        ''')
 
         conn.commit()
 
@@ -113,6 +129,21 @@ def get_db_connection():
     conn = sqlite3.connect(DB_PATH)
     conn.row_factory = sqlite3.Row
     return conn
+
+def get_app_config():
+    """Get all app configuration from database"""
+    with get_db_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute("SELECT key, value FROM app_config")
+        return {row[0]: row[1] for row in cursor.fetchall()}
+
+def get_config_value(key, default=None):
+    """Get a specific config value from database"""
+    with get_db_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute("SELECT value FROM app_config WHERE key = ?", (key,))
+        row = cursor.fetchone()
+        return row[0] if row else default
 
 # Initialize database on startup
 init_db()
@@ -272,6 +303,11 @@ def save_data(data, username=None):
 
 @app.route("/register", methods=["GET", "POST"])
 def register():
+    # Check if registration is enabled
+    if get_config_value('registration_enabled', 'true') != 'true':
+        flash("Registration is currently disabled", "error")
+        return redirect(url_for("login"))
+    
     if request.method == "POST":
         username = request.form["username"].strip().lower()
         password = request.form["password"]
@@ -716,7 +752,13 @@ def create_protocol():
         flash("Protocol name too long (max 50 characters)", "error")
         return redirect(url_for("dashboard"))
 
+    # Check max protocols limit
+    max_protocols = int(get_config_value('max_protocols_per_user', '10'))
     data = load_data()
+    if len(data["protocols"]) >= max_protocols:
+        flash(f"Maximum of {max_protocols} protocols allowed per user", "error")
+        return redirect(url_for("dashboard"))
+
     if name not in data["protocols"]:
         data["protocols"][name] = {
             "compounds": ["FOXO4-DRI", "Fisetin", "Quercetin"],
@@ -832,6 +874,11 @@ def history(name):
 @app.route("/protocol/<name>/reminder")
 @login_required
 def reminder(name):
+    # Check if email reminders are enabled
+    if get_config_value('email_reminders_enabled', 'true') != 'true':
+        flash("Email reminders are currently disabled", "error")
+        return redirect(url_for("tracker", name=name))
+    
     data = load_data()
     logs = data["protocols"][name]["logs"]
     last = sorted(logs.keys())[-1] if logs else None
@@ -852,6 +899,11 @@ def reminder(name):
 @app.route("/protocol/<name>/analytics")
 @login_required
 def analytics(name):
+    # Check if analytics is enabled
+    if get_config_value('analytics_enabled', 'true') != 'true':
+        flash("Analytics is currently disabled", "error")
+        return redirect(url_for("tracker", name=name))
+    
     data = load_data()
     prot = data["protocols"][name]
     logs = prot["logs"]
@@ -904,6 +956,11 @@ def analytics(name):
 @app.route("/protocol/<name>/export/csv")
 @login_required
 def export_csv(name):
+    # Check if data export is enabled
+    if get_config_value('data_export_enabled', 'true') != 'true':
+        flash("Data export is currently disabled", "error")
+        return redirect(url_for("tracker", name=name))
+    
     data = load_data()
     prot = data["protocols"][name]
 
@@ -1534,7 +1591,7 @@ document.addEventListener('DOMContentLoaded', () => {
   btn.onclick = () => {
     document.body.classList.toggle('dark');
     const isDark = document.body.classList.contains('dark');
-    localStorage.setItem('darkmode',isDark);
+    localStorage.setItem('darkmode', isDark);
     btn.innerHTML = isDark ? "☀️ <span>Light Mode</span>" : "🌙 <span>Dark Mode</span>";
   };
   document.body.appendChild(btn);
