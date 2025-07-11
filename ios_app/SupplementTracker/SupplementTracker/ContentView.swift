@@ -22,6 +22,11 @@ struct ContentView: View {
                 .environmentObject(apiService)
         }
     }
+    .onReceive(apiService.$isAuthenticated) { authenticated in
+        if !authenticated {
+            isLoggedIn = false
+        }
+    }
 }
 
 struct ContentView_Previews: PreviewProvider {
