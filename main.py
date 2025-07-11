@@ -971,7 +971,7 @@ def reminder(name):
     data = load_data()
     logs = data["protocols"][name]["logs"]
     last = sorted(logs.keys())[-1] if logs else None
-    days_since = (date.today() - datetime.strptime(last, "%Y-%m-%d").days if last else "N/A"
+    days_since = (date.today() - datetime.strptime(last, "%Y-%m-%d").date()).days if last else "N/A"
     msg = f"Reminder: Log today's dose for '{name}'\nLast log: {last} ({days_since} days ago)"
 
     email = data.get("email", "")
@@ -1611,8 +1611,7 @@ document.addEventListener('DOMContentLoaded', () => {
     document.body.classList.toggle('dark');
     const isDark = document.body.classList.contains('dark');
     localStorage.setItem('darkmode', isDark);
-    btn.innerHTML```python
- = isDark ? "☀️ <span>Light Mode</span>" : "🌙 <span>Dark Mode</span>";
+    btn.innerHTML = isDark ? "☀️ <span>Light Mode</span>" : "🌙 <span>Dark Mode</span>";
   };
   document.body.appendChild(btn);
   if (localStorage.getItem('darkmode') === 'true') {
