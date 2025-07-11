@@ -1,8 +1,9 @@
-import os, json, io, base64, sqlite3
+
+import os, json, io, base64, sqlite3, psutil, time, csv
 from flask import Flask, render_template_string, request, redirect, url_for, session, jsonify, Response, flash
 from flask_login import LoginManager, login_user, logout_user, login_required, UserMixin, current_user
 from werkzeug.security import generate_password_hash, check_password_hash
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from pathlib import Path
 import pyotp
 import qrcode
@@ -21,6 +22,9 @@ USER_DIR.mkdir(parents=True, exist_ok=True)
 # Database setup
 DB_PATH = DATA_DIR / "supplement_tracker.db"
 
+# Store app start time for uptime calculation
+APP_START_TIME = time.time()
+
 def init_db():
     """Initialize the database with required tables"""
     with sqlite3.connect(DB_PATH) as conn:
@@ -36,7 +40,12 @@ def init_db():
                 email TEXT DEFAULT '',
                 disabled BOOLEAN DEFAULT FALSE,
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                last_login TIMESTAMP
+                last_login TIMESTAMP,
+                login_attempts INTEGER DEFAULT 0,
+                last_failed_login TIMESTAMP,
+                ip_address TEXT DEFAULT '',
+                custom_fields TEXT DEFAULT '{}',
+                location TEXT DEFAULT ''
             )
         ''')
 
@@ -51,7 +60,10 @@ def init_db():
                 email TEXT DEFAULT '',
                 disabled BOOLEAN DEFAULT FALSE,
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                last_login TIMESTAMP
+                last_login TIMESTAMP,
+                permissions TEXT DEFAULT '{}',
+                login_attempts INTEGER DEFAULT 0,
+                last_failed_login TIMESTAMP
             )
         ''')
 
@@ -62,6 +74,7 @@ def init_db():
                 user_id INTEGER NOT NULL,
                 name TEXT NOT NULL,
                 compounds TEXT NOT NULL,
+                is_template BOOLEAN DEFAULT FALSE,
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                 FOREIGN KEY (user_id) REFERENCES users (id),
                 UNIQUE(user_id, name)
@@ -94,58 +107,102 @@ def init_db():
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 key TEXT UNIQUE NOT NULL,
                 value TEXT NOT NULL,
-                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                updated_by TEXT DEFAULT ''
+            )
+        ''')
+
+        # System monitoring table
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS system_logs (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                log_type TEXT NOT NULL,
+                message TEXT NOT NULL,
+                severity TEXT DEFAULT 'info',
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                user_id INTEGER,
+                ip_address TEXT,
+                FOREIGN KEY (user_id) REFERENCES users (id)
+            )
+        ''')
+
+        # Notifications table
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS notifications (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                user_id INTEGER NOT NULL,
+                title TEXT NOT NULL,
+                message TEXT NOT NULL,
+                type TEXT DEFAULT 'info',
+                is_read BOOLEAN DEFAULT FALSE,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (user_id) REFERENCES users (id)
+            )
+        ''')
+
+        # Support tickets table
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS support_tickets (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                user_id INTEGER NOT NULL,
+                title TEXT NOT NULL,
+                description TEXT NOT NULL,
+                status TEXT DEFAULT 'open',
+                priority TEXT DEFAULT 'medium',
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (user_id) REFERENCES users (id)
+            )
+        ''')
+
+        # Announcements table
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS announcements (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                title TEXT NOT NULL,
+                content TEXT NOT NULL,
+                type TEXT DEFAULT 'info',
+                active BOOLEAN DEFAULT TRUE,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                expires_at TIMESTAMP
+            )
+        ''')
+
+        # IP blacklist table
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS ip_blacklist (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                ip_address TEXT UNIQUE NOT NULL,
+                reason TEXT DEFAULT '',
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                created_by TEXT DEFAULT ''
             )
         ''')
 
         # Insert default config values
-        cursor.execute('''
-            INSERT OR IGNORE INTO app_config (key, value) 
-            VALUES ('app_name', 'Supplement Tracker')
-        ''')
-        cursor.execute('''
-            INSERT OR IGNORE INTO app_config (key, value) 
-            VALUES ('max_protocols_per_user', '10')
-        ''')
-        cursor.execute('''
-            INSERT OR IGNORE INTO app_config (key, value) 
-            VALUES ('email_reminders_enabled', 'true')
-        ''')
-        cursor.execute('''
-            INSERT OR IGNORE INTO app_config (key, value) 
-            VALUES ('registration_enabled', 'true')
-        ''')
-        cursor.execute('''
-            INSERT OR IGNORE INTO app_config (key, value) 
-            VALUES ('data_export_enabled', 'true')
-        ''')
-        cursor.execute('''
-            INSERT OR IGNORE INTO app_config (key, value) 
-            VALUES ('analytics_enabled', 'true')
-        ''')
-        cursor.execute('''
-            INSERT OR IGNORE INTO app_config (key, value) 
-            VALUES ('sendgrid_api_key', '')
-        ''')
-        cursor.execute('''
-            INSERT OR IGNORE INTO app_config (key, value) 
-            VALUES ('sendgrid_from_email', '')
-        ''')
+        default_configs = [
+            ('app_name', 'Supplement Tracker'),
+            ('max_protocols_per_user', '10'),
+            ('email_reminders_enabled', 'true'),
+            ('registration_enabled', 'true'),
+            ('data_export_enabled', 'true'),
+            ('analytics_enabled', 'true'),
+            ('sendgrid_api_key', ''),
+            ('sendgrid_from_email', ''),
+            ('maintenance_mode', 'false'),
+            ('max_login_attempts', '5'),
+            ('session_timeout', '30'),
+            ('password_min_length', '6'),
+            ('require_2fa', 'true')
+        ]
+
+        for key, value in default_configs:
+            cursor.execute('''
+                INSERT OR IGNORE INTO app_config (key, value) 
+                VALUES (?, ?)
+            ''', (key, value))
 
         conn.commit()
-        
-        # Add migration for disabled columns if they don't exist
-        try:
-            cursor.execute("ALTER TABLE users ADD COLUMN disabled BOOLEAN DEFAULT FALSE")
-            conn.commit()
-        except sqlite3.OperationalError:
-            pass  # Column already exists
-            
-        try:
-            cursor.execute("ALTER TABLE admins ADD COLUMN disabled BOOLEAN DEFAULT FALSE")
-            conn.commit()
-        except sqlite3.OperationalError:
-            pass  # Column already exists
 
 def get_db_connection():
     """Get database connection"""
@@ -168,6 +225,37 @@ def get_config_value(key, default=None):
         row = cursor.fetchone()
         return row[0] if row else default
 
+def log_system_event(log_type, message, severity='info', user_id=None, ip_address=None):
+    """Log system events for monitoring"""
+    with get_db_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute('''
+            INSERT INTO system_logs (log_type, message, severity, user_id, ip_address)
+            VALUES (?, ?, ?, ?, ?)
+        ''', (log_type, message, severity, user_id, ip_address))
+        conn.commit()
+
+def get_system_stats():
+    """Get system statistics"""
+    try:
+        uptime = time.time() - APP_START_TIME
+        cpu_percent = psutil.cpu_percent(interval=1)
+        memory = psutil.virtual_memory()
+        disk = psutil.disk_usage('/')
+        
+        return {
+            'uptime': uptime,
+            'cpu_percent': cpu_percent,
+            'memory_percent': memory.percent,
+            'disk_percent': disk.percent,
+            'memory_used': memory.used,
+            'memory_total': memory.total,
+            'disk_used': disk.used,
+            'disk_total': disk.total
+        }
+    except Exception as e:
+        return {'error': str(e)}
+
 # Initialize database on startup
 init_db()
 
@@ -188,7 +276,7 @@ class User(UserMixin):
 
 class Admin(UserMixin):
     def __init__(self, username, admin_id=None, role=None):
-        self.id = f"admin_{username}"  # Prefix to distinguish from regular users
+        self.id = f"admin_{username}"
         self.admin_id = admin_id
         self.username = username
         self.role = role
@@ -223,7 +311,6 @@ def load_data(username=None):
         if not row:
             return {"password": "", "2fa_secret": "", "protocols": {}, "email": ""}
 
-        # Get protocols
         cursor.execute('''
             SELECT name, compounds FROM protocols 
             WHERE user_id = (SELECT id FROM users WHERE username = ?)
@@ -233,7 +320,6 @@ def load_data(username=None):
             protocol_name = protocol_row[0]
             compounds = json.loads(protocol_row[1])
 
-            # Get logs for this protocol
             cursor.execute('''
                 SELECT log_date, compound, taken, note, mood, energy, side_effects, weight, general_notes
                 FROM protocol_logs pl
@@ -274,29 +360,24 @@ def save_data(data, username=None):
     with get_db_connection() as conn:
         cursor = conn.cursor()
 
-        # Update user info
         cursor.execute('''
             UPDATE users SET email = ? WHERE username = ?
         ''', (data.get("email", ""), username))
 
-        # Get user ID
         cursor.execute("SELECT id FROM users WHERE username = ?", (username,))
         user_row = cursor.fetchone()
         if not user_row:
             return
         user_id = user_row[0]
 
-        # Handle protocols
         for protocol_name, protocol_data in data.get("protocols", {}).items():
             compounds = json.dumps(protocol_data.get("compounds", []))
 
-            # Insert or update protocol
             cursor.execute('''
                 INSERT OR REPLACE INTO protocols (user_id, name, compounds)
                 VALUES (?, ?, ?)
             ''', (user_id, protocol_name, compounds))
 
-            # Get protocol ID
             cursor.execute("SELECT id FROM protocols WHERE user_id = ? AND name = ?", 
                          (user_id, protocol_name))
             protocol_row = cursor.fetchone()
@@ -304,7 +385,6 @@ def save_data(data, username=None):
                 continue
             protocol_id = protocol_row[0]
 
-            # Handle logs
             logs = protocol_data.get("logs", {})
             for log_date, entries in logs.items():
                 for compound, entry_data in entries.items():
@@ -326,7 +406,6 @@ def save_data(data, username=None):
 
 @app.route("/register", methods=["GET", "POST"])
 def register():
-    # Check if registration is enabled
     if get_config_value('registration_enabled', 'true') != 'true':
         flash("Registration is currently disabled", "error")
         return redirect(url_for("login"))
@@ -343,13 +422,13 @@ def register():
             flash("Username must be at least 3 characters", "error")
             return render_template_string(THEME_HEADER + AUTH_TEMPLATE, title="Register", action="register")
 
-        if len(password) < 6:
-            flash("Password must be at least 6 characters", "error")
+        min_password_length = int(get_config_value('password_min_length', '6'))
+        if len(password) < min_password_length:
+            flash(f"Password must be at least {min_password_length} characters", "error")
             return render_template_string(THEME_HEADER + AUTH_TEMPLATE, title="Register", action="register")
 
         with get_db_connection() as conn:
             cursor = conn.cursor()
-            # Check for username conflicts in both users and admins tables
             cursor.execute("SELECT id FROM users WHERE username = ?", (username,))
             if cursor.fetchone():
                 flash("Username already exists", "error")
@@ -367,6 +446,7 @@ def register():
             ''', (username, generate_password_hash(password), secret, ""))
             conn.commit()
 
+        log_system_event('user_registration', f'New user registered: {username}', 'info')
         session["pending_user"] = username
         flash("Account created successfully! Please set up 2FA.", "success")
         return redirect(url_for("twofa_setup"))
@@ -387,8 +467,9 @@ def admin_register():
             flash("Username must be at least 3 characters", "error")
             return render_template_string(THEME_HEADER + ADMIN_AUTH_TEMPLATE, title="Admin Register", action="admin/register")
 
-        if len(password) < 6:
-            flash("Password must be at least 6 characters", "error")
+        min_password_length = int(get_config_value('password_min_length', '6'))
+        if len(password) < min_password_length:
+            flash(f"Password must be at least {min_password_length} characters", "error")
             return render_template_string(THEME_HEADER + ADMIN_AUTH_TEMPLATE, title="Admin Register", action="admin/register")
 
         if role not in ["Super Admin", "Admin", "Operator"]:
@@ -397,7 +478,6 @@ def admin_register():
 
         with get_db_connection() as conn:
             cursor = conn.cursor()
-            # Check for username conflicts in both users and admins tables
             cursor.execute("SELECT id FROM users WHERE username = ?", (username,))
             if cursor.fetchone():
                 flash("Username conflicts with user account", "error")
@@ -415,6 +495,7 @@ def admin_register():
             ''', (username, generate_password_hash(password), secret, role, ""))
             conn.commit()
 
+        log_system_event('admin_registration', f'New admin registered: {username} ({role})', 'info')
         session["pending_admin"] = username
         flash("Admin account created successfully! Please set up 2FA.", "success")
         return redirect(url_for("admin_twofa_setup"))
@@ -425,6 +506,7 @@ def login():
     if request.method == "POST":
         username = request.form["username"].strip().lower()
         password = request.form["password"]
+        client_ip = request.remote_addr
 
         if not username or not password:
             flash("Username and password are required", "error")
@@ -432,20 +514,30 @@ def login():
 
         with get_db_connection() as conn:
             cursor = conn.cursor()
-            cursor.execute("SELECT password_hash FROM users WHERE username = ?", (username,))
+            cursor.execute("SELECT password_hash, login_attempts FROM users WHERE username = ?", (username,))
             row = cursor.fetchone()
             if not row:
+                log_system_event('login_failed', f'Login attempt for non-existent user: {username}', 'warning', ip_address=client_ip)
                 flash("User not found", "error")
                 return render_template_string(THEME_HEADER + AUTH_TEMPLATE, title="Login", action="login")
 
+            max_attempts = int(get_config_value('max_login_attempts', '5'))
+            if row[1] >= max_attempts:
+                log_system_event('login_blocked', f'Login blocked for user: {username} (too many attempts)', 'warning', ip_address=client_ip)
+                flash("Account temporarily locked due to too many failed attempts", "error")
+                return render_template_string(THEME_HEADER + AUTH_TEMPLATE, title="Login", action="login")
+
             if not check_password_hash(row[0], password):
+                cursor.execute("UPDATE users SET login_attempts = login_attempts + 1, last_failed_login = CURRENT_TIMESTAMP WHERE username = ?", (username,))
+                conn.commit()
+                log_system_event('login_failed', f'Invalid password for user: {username}', 'warning', ip_address=client_ip)
                 flash("Incorrect password", "error")
                 return render_template_string(THEME_HEADER + AUTH_TEMPLATE, title="Login", action="login")
 
-            # Update last login
-            cursor.execute("UPDATE users SET last_login = CURRENT_TIMESTAMP WHERE username = ?", (username,))
+            cursor.execute("UPDATE users SET last_login = CURRENT_TIMESTAMP, login_attempts = 0, ip_address = ? WHERE username = ?", (client_ip, username))
             conn.commit()
 
+        log_system_event('login_success', f'User logged in: {username}', 'info', ip_address=client_ip)
         session["pending_user"] = username
         return redirect(url_for("twofa_verify"))
     return render_template_string(THEME_HEADER + AUTH_TEMPLATE, title="Login", action="login")
@@ -455,6 +547,7 @@ def admin_login():
     if request.method == "POST":
         username = request.form["username"].strip().lower()
         password = request.form["password"]
+        client_ip = request.remote_addr
 
         if not username or not password:
             flash("Username and password are required", "error")
@@ -462,20 +555,30 @@ def admin_login():
 
         with get_db_connection() as conn:
             cursor = conn.cursor()
-            cursor.execute("SELECT password_hash FROM admins WHERE username = ?", (username,))
+            cursor.execute("SELECT password_hash, login_attempts FROM admins WHERE username = ?", (username,))
             row = cursor.fetchone()
             if not row:
+                log_system_event('admin_login_failed', f'Admin login attempt for non-existent user: {username}', 'warning', ip_address=client_ip)
                 flash("Admin not found", "error")
                 return render_template_string(THEME_HEADER + ADMIN_AUTH_TEMPLATE, title="Admin Login", action="admin/login")
 
+            max_attempts = int(get_config_value('max_login_attempts', '5'))
+            if row[1] >= max_attempts:
+                log_system_event('admin_login_blocked', f'Admin login blocked for user: {username} (too many attempts)', 'warning', ip_address=client_ip)
+                flash("Account temporarily locked due to too many failed attempts", "error")
+                return render_template_string(THEME_HEADER + ADMIN_AUTH_TEMPLATE, title="Admin Login", action="admin/login")
+
             if not check_password_hash(row[0], password):
+                cursor.execute("UPDATE admins SET login_attempts = login_attempts + 1, last_failed_login = CURRENT_TIMESTAMP WHERE username = ?", (username,))
+                conn.commit()
+                log_system_event('admin_login_failed', f'Invalid password for admin: {username}', 'warning', ip_address=client_ip)
                 flash("Incorrect password", "error")
                 return render_template_string(THEME_HEADER + ADMIN_AUTH_TEMPLATE, title="Admin Login", action="admin/login")
 
-            # Update last login
-            cursor.execute("UPDATE admins SET last_login = CURRENT_TIMESTAMP WHERE username = ?", (username,))
+            cursor.execute("UPDATE admins SET last_login = CURRENT_TIMESTAMP, login_attempts = 0 WHERE username = ?", (username,))
             conn.commit()
 
+        log_system_event('admin_login_success', f'Admin logged in: {username}', 'info', ip_address=client_ip)
         session["pending_admin"] = username
         return redirect(url_for("admin_twofa_verify"))
     return render_template_string(THEME_HEADER + ADMIN_AUTH_TEMPLATE, title="Admin Login", action="admin/login")
@@ -581,13 +684,11 @@ def twofa_setup():
         return redirect(url_for("register"))
 
     try:
-        # Create QR code
         uri = pyotp.TOTP(data["2fa_secret"]).provisioning_uri(
             name=username,
             issuer_name="SupplementTracker"
         )
 
-        # Generate QR code image
         qr = qrcode.QRCode(
             version=1,
             error_correction=qrcode.constants.ERROR_CORRECT_L,
@@ -602,7 +703,6 @@ def twofa_setup():
         img.save(buf, format="PNG")
         buf.seek(0)
         encoded = base64.b64encode(buf.read()).decode()
-        print(f"User 2FA QR code generated successfully, encoded length: {len(encoded)}")
 
         return render_template_string(THEME_HEADER + TWOFA_SETUP_TEMPLATE,
                                     qr_code=encoded, 
@@ -610,7 +710,6 @@ def twofa_setup():
                                     username=username)
 
     except Exception as e:
-        print(f"2FA setup error: {str(e)}")
         flash(f"Error generating 2FA setup: {str(e)}", "error")
         return redirect(url_for("register"))
 
@@ -627,13 +726,11 @@ def admin_twofa_setup():
         return redirect(url_for("admin_register"))
 
     try:
-        # Create QR code
         uri = pyotp.TOTP(data["2fa_secret"]).provisioning_uri(
             name=f"admin_{username}",
             issuer_name="SupplementTracker-Admin"
         )
 
-        # Generate QR code image
         qr = qrcode.QRCode(
             version=1,
             error_correction=qrcode.constants.ERROR_CORRECT_L,
@@ -648,7 +745,6 @@ def admin_twofa_setup():
         img.save(buf, format="PNG")
         buf.seek(0)
         encoded = base64.b64encode(buf.read()).decode()
-        print(f"Admin 2FA QR code generated successfully, encoded length: {len(encoded)}")
 
         return render_template_string(THEME_HEADER + ADMIN_TWOFA_SETUP_TEMPLATE,
                                     qr_code=encoded, 
@@ -656,7 +752,6 @@ def admin_twofa_setup():
                                     username=username)
 
     except Exception as e:
-        print(f"Admin 2FA setup error: {str(e)}")
         flash(f"Error generating admin 2FA setup: {str(e)}", "error")
         return redirect(url_for("admin_register"))
 
@@ -691,29 +786,41 @@ def admin_dashboard():
         cursor.execute("SELECT COUNT(*) FROM admins")
         admin_count = cursor.fetchone()[0]
 
-        # Get recent activity (last 10 users)
+        # Get protocol count
+        cursor.execute("SELECT COUNT(*) FROM protocols")
+        protocol_count = cursor.fetchone()[0]
+
+        # Get recent activity
         cursor.execute("SELECT username, last_login FROM users ORDER BY last_login DESC LIMIT 10")
         recent_users = cursor.fetchall()
+
+        # Get system stats
+        system_stats = get_system_stats()
 
         # Get all admins (for super admin)
         admins = []
         if current_user.role == "Super Admin":
-            # Add disabled column if it doesn't exist
-            try:
-                cursor.execute("ALTER TABLE admins ADD COLUMN disabled BOOLEAN DEFAULT FALSE")
-                conn.commit()
-            except sqlite3.OperationalError:
-                pass  # Column already exists
-            
             cursor.execute("SELECT username, role, email, last_login, disabled, id FROM admins ORDER BY username")
             admins = cursor.fetchall()
+
+        # Get recent system logs
+        cursor.execute("SELECT log_type, message, severity, created_at FROM system_logs ORDER BY created_at DESC LIMIT 20")
+        recent_logs = cursor.fetchall()
+
+        # Get active announcements
+        cursor.execute("SELECT title, content, type FROM announcements WHERE active = 1 AND (expires_at IS NULL OR expires_at > CURRENT_TIMESTAMP)")
+        announcements = cursor.fetchall()
 
     return render_template_string(THEME_HEADER + ADMIN_DASHBOARD_TEMPLATE, 
                                 config=config, 
                                 user_count=user_count,
                                 admin_count=admin_count,
+                                protocol_count=protocol_count,
                                 recent_users=recent_users,
                                 admins=admins,
+                                system_stats=system_stats,
+                                recent_logs=recent_logs,
+                                announcements=announcements,
                                 current_admin=current_user)
 
 @app.route("/admin/config", methods=["POST"])
@@ -728,24 +835,25 @@ def update_config():
         cursor = conn.cursor()
 
         # Update configuration values
-        for key in ["app_name", "max_protocols_per_user", "sendgrid_api_key", "sendgrid_from_email"]:
+        for key in ["app_name", "max_protocols_per_user", "sendgrid_api_key", "sendgrid_from_email", "password_min_length", "max_login_attempts", "session_timeout"]:
             value = request.form.get(key)
-            if value is not None:  # Allow empty strings for clearing values
+            if value is not None:
                 cursor.execute('''
-                    INSERT OR REPLACE INTO app_config (key, value, updated_at)
-                    VALUES (?, ?, CURRENT_TIMESTAMP)
-                ''', (key, value))
+                    INSERT OR REPLACE INTO app_config (key, value, updated_at, updated_by)
+                    VALUES (?, ?, CURRENT_TIMESTAMP, ?)
+                ''', (key, value, current_user.username))
 
         # Handle boolean configs
-        for key in ["email_reminders_enabled", "registration_enabled", "data_export_enabled", "analytics_enabled"]:
+        for key in ["email_reminders_enabled", "registration_enabled", "data_export_enabled", "analytics_enabled", "maintenance_mode", "require_2fa"]:
             value = "true" if request.form.get(key) == "on" else "false"
             cursor.execute('''
-                INSERT OR REPLACE INTO app_config (key, value, updated_at)
-                VALUES (?, ?, CURRENT_TIMESTAMP)
-            ''', (key, value))
+                INSERT OR REPLACE INTO app_config (key, value, updated_at, updated_by)
+                VALUES (?, ?, CURRENT_TIMESTAMP, ?)
+            ''', (key, value, current_user.username))
 
         conn.commit()
 
+    log_system_event('config_update', f'Configuration updated by admin: {current_user.username}', 'info')
     flash("Configuration updated successfully!", "success")
     return redirect(url_for("admin_dashboard"))
 
@@ -759,15 +867,14 @@ def test_email():
         flash("Please enter a test email address", "error")
         return redirect(url_for("admin_dashboard"))
     
-    # Send test email
     subject = "SendGrid Test Email - Supplement Tracker"
-    body = """This is a test email from your Supplement Tracker application.
+    body = f"""This is a test email from your Supplement Tracker application.
 
 If you received this email, your SendGrid configuration is working correctly!
 
 Test details:
 - Sent from: Admin Dashboard
-- Time: """ + datetime.now().strftime("%Y-%m-%d %H:%M:%S") + """
+- Time: {datetime.now().strftime("%Y-%m-%d %H:%M:%S")}
 - Configuration: SendGrid API
 
 Best regards,
@@ -780,21 +887,38 @@ Supplement Tracker Admin Team"""
     
     return redirect(url_for("admin_dashboard"))
 
-@app.route("/admin/delete_admin/<username>", methods=["POST"])
+@app.route("/admin/system_monitoring")
 @login_required
-@super_admin_required
-def delete_admin(username):
-    if username == current_user.username:
-        flash("Cannot delete your own admin account", "error")
-        return redirect(url_for("admin_dashboard"))
-
+@admin_required
+def system_monitoring():
     with get_db_connection() as conn:
         cursor = conn.cursor()
-        cursor.execute("DELETE FROM admins WHERE username = ?", (username,))
-        conn.commit()
+        
+        # Get system statistics
+        system_stats = get_system_stats()
+        
+        # Get database size
+        cursor.execute("SELECT page_count * page_size as size FROM pragma_page_count(), pragma_page_size()")
+        db_size = cursor.fetchone()[0] if cursor.fetchone() else 0
+        
+        # Get active sessions (simplified)
+        cursor.execute("SELECT COUNT(*) FROM users WHERE last_login > datetime('now', '-1 hour')")
+        active_sessions = cursor.fetchone()[0]
+        
+        # Get recent errors
+        cursor.execute("SELECT message, created_at FROM system_logs WHERE severity = 'error' ORDER BY created_at DESC LIMIT 10")
+        recent_errors = cursor.fetchall()
+        
+        # Get login attempts in last 24 hours
+        cursor.execute("SELECT COUNT(*) FROM system_logs WHERE log_type = 'login_failed' AND created_at > datetime('now', '-1 day')")
+        failed_logins_24h = cursor.fetchone()[0]
 
-    flash(f"Admin '{username}' deleted successfully", "success")
-    return redirect(url_for("admin_dashboard"))
+    return render_template_string(THEME_HEADER + SYSTEM_MONITORING_TEMPLATE,
+                                system_stats=system_stats,
+                                db_size=db_size,
+                                active_sessions=active_sessions,
+                                recent_errors=recent_errors,
+                                failed_logins_24h=failed_logins_24h)
 
 @app.route("/admin/users")
 @login_required
@@ -807,13 +931,6 @@ def admin_users():
     with get_db_connection() as conn:
         cursor = conn.cursor()
         
-        # Add disabled column if it doesn't exist
-        try:
-            cursor.execute("ALTER TABLE users ADD COLUMN disabled BOOLEAN DEFAULT FALSE")
-            conn.commit()
-        except sqlite3.OperationalError:
-            pass  # Column already exists
-            
         # Get total count for pagination
         cursor.execute("SELECT COUNT(*) FROM users")
         total_users = cursor.fetchone()[0]
@@ -821,10 +938,10 @@ def admin_users():
         # Get paginated users
         cursor.execute('''
             SELECT u.id, u.username, u.email, u.created_at, u.last_login,
-                   COUNT(p.id) as protocol_count, u.disabled
+                   COUNT(p.id) as protocol_count, u.disabled, u.location, u.login_attempts
             FROM users u
             LEFT JOIN protocols p ON u.id = p.user_id
-            GROUP BY u.id, u.username, u.email, u.created_at, u.last_login, u.disabled
+            GROUP BY u.id, u.username, u.email, u.created_at, u.last_login, u.disabled, u.location, u.login_attempts
             ORDER BY u.username
             LIMIT ? OFFSET ?
         ''', (per_page, offset))
@@ -852,21 +969,14 @@ def admin_users():
 @login_required
 @admin_required
 def disable_user(user_id):
-    # For this demo, we'll add a disabled flag to the users table
-    # First, let's add the column if it doesn't exist
     with get_db_connection() as conn:
         cursor = conn.cursor()
-        try:
-            cursor.execute("ALTER TABLE users ADD COLUMN disabled BOOLEAN DEFAULT FALSE")
-            conn.commit()
-        except sqlite3.OperationalError:
-            pass  # Column already exists
-
         cursor.execute("UPDATE users SET disabled = TRUE WHERE id = ?", (user_id,))
         cursor.execute("SELECT username FROM users WHERE id = ?", (user_id,))
         username = cursor.fetchone()[0]
         conn.commit()
 
+    log_system_event('user_disabled', f'User disabled by admin: {username}', 'info')
     flash(f"User '{username}' disabled successfully", "success")
     return redirect(url_for("admin_users"))
 
@@ -881,6 +991,7 @@ def enable_user(user_id):
         username = cursor.fetchone()[0]
         conn.commit()
 
+    log_system_event('user_enabled', f'User enabled by admin: {username}', 'info')
     flash(f"User '{username}' enabled successfully", "success")
     return redirect(url_for("admin_users"))
 
@@ -891,7 +1002,6 @@ def delete_user(user_id):
     with get_db_connection() as conn:
         cursor = conn.cursor()
         
-        # Get username before deletion
         cursor.execute("SELECT username FROM users WHERE id = ?", (user_id,))
         username_row = cursor.fetchone()
         if not username_row:
@@ -899,7 +1009,6 @@ def delete_user(user_id):
             return redirect(url_for("admin_users"))
         username = username_row[0]
         
-        # Delete user data (cascade delete)
         cursor.execute('''
             DELETE FROM protocol_logs 
             WHERE protocol_id IN (SELECT id FROM protocols WHERE user_id = ?)
@@ -908,6 +1017,7 @@ def delete_user(user_id):
         cursor.execute("DELETE FROM users WHERE id = ?", (user_id,))
         conn.commit()
 
+    log_system_event('user_deleted', f'User deleted by admin: {username}', 'warning')
     flash(f"User '{username}' and all associated data deleted successfully", "success")
     return redirect(url_for("admin_users"))
 
@@ -923,6 +1033,7 @@ def reset_user_2fa(user_id):
         username = cursor.fetchone()[0]
         conn.commit()
 
+    log_system_event('user_2fa_reset', f'2FA reset for user by admin: {username}', 'info')
     flash(f"2FA reset for user '{username}'. They will need to set up 2FA again.", "success")
     return redirect(url_for("admin_users"))
 
@@ -951,98 +1062,27 @@ def edit_user(user_id):
                 flash(f"User '{user[0]}' email updated", "success")
             
             conn.commit()
+            log_system_event('user_edited', f'User edited by admin: {user[0]}', 'info')
             return redirect(url_for("admin_users"))
 
     return render_template_string(THEME_HEADER + EDIT_USER_TEMPLATE, user=user, user_id=user_id)
 
-@app.route("/admin/admins/<int:admin_id>/disable", methods=["POST"])
+@app.route("/admin/delete_admin/<username>", methods=["POST"])
 @login_required
 @super_admin_required
-def disable_admin(admin_id):
-    if admin_id == current_user.admin_id:
-        flash("Cannot disable your own admin account", "error")
+def delete_admin(username):
+    if username == current_user.username:
+        flash("Cannot delete your own admin account", "error")
         return redirect(url_for("admin_dashboard"))
 
-    # Add disabled column if it doesn't exist
     with get_db_connection() as conn:
         cursor = conn.cursor()
-        try:
-            cursor.execute("ALTER TABLE admins ADD COLUMN disabled BOOLEAN DEFAULT FALSE")
-            conn.commit()
-        except sqlite3.OperationalError:
-            pass  # Column already exists
-
-        cursor.execute("UPDATE admins SET disabled = TRUE WHERE id = ?", (admin_id,))
-        cursor.execute("SELECT username FROM admins WHERE id = ?", (admin_id,))
-        username = cursor.fetchone()[0]
+        cursor.execute("DELETE FROM admins WHERE username = ?", (username,))
         conn.commit()
 
-    flash(f"Admin '{username}' disabled successfully", "success")
+    log_system_event('admin_deleted', f'Admin deleted by super admin: {username}', 'warning')
+    flash(f"Admin '{username}' deleted successfully", "success")
     return redirect(url_for("admin_dashboard"))
-
-@app.route("/admin/admins/<int:admin_id>/enable", methods=["POST"])
-@login_required
-@super_admin_required
-def enable_admin(admin_id):
-    with get_db_connection() as conn:
-        cursor = conn.cursor()
-        cursor.execute("UPDATE admins SET disabled = FALSE WHERE id = ?", (admin_id,))
-        cursor.execute("SELECT username FROM admins WHERE id = ?", (admin_id,))
-        username = cursor.fetchone()[0]
-        conn.commit()
-
-    flash(f"Admin '{username}' enabled successfully", "success")
-    return redirect(url_for("admin_dashboard"))
-
-@app.route("/admin/admins/<int:admin_id>/reset_2fa", methods=["POST"])
-@login_required
-@super_admin_required
-def reset_admin_2fa(admin_id):
-    if admin_id == current_user.admin_id:
-        flash("Cannot reset your own 2FA", "error")
-        return redirect(url_for("admin_dashboard"))
-
-    new_secret = pyotp.random_base32()
-    with get_db_connection() as conn:
-        cursor = conn.cursor()
-        cursor.execute("UPDATE admins SET twofa_secret = ? WHERE id = ?", (new_secret, admin_id))
-        cursor.execute("SELECT username FROM admins WHERE id = ?", (admin_id,))
-        username = cursor.fetchone()[0]
-        conn.commit()
-
-    flash(f"2FA reset for admin '{username}'. They will need to set up 2FA again.", "success")
-    return redirect(url_for("admin_dashboard"))
-
-@app.route("/admin/admins/<int:admin_id>/edit", methods=["GET", "POST"])
-@login_required
-@super_admin_required
-def edit_admin(admin_id):
-    with get_db_connection() as conn:
-        cursor = conn.cursor()
-        cursor.execute("SELECT username, email, role FROM admins WHERE id = ?", (admin_id,))
-        admin = cursor.fetchone()
-        if not admin:
-            flash("Admin not found", "error")
-            return redirect(url_for("admin_dashboard"))
-
-        if request.method == "POST":
-            new_email = request.form.get("email", "")
-            new_role = request.form.get("role", admin[2])
-            new_password = request.form.get("new_password", "").strip()
-            
-            if new_password:
-                cursor.execute("UPDATE admins SET email = ?, role = ?, password_hash = ? WHERE id = ?", 
-                             (new_email, new_role, generate_password_hash(new_password), admin_id))
-                flash(f"Admin '{admin[0]}' updated with new password", "success")
-            else:
-                cursor.execute("UPDATE admins SET email = ?, role = ? WHERE id = ?", 
-                             (new_email, new_role, admin_id))
-                flash(f"Admin '{admin[0]}' updated", "success")
-            
-            conn.commit()
-            return redirect(url_for("admin_dashboard"))
-
-    return render_template_string(THEME_HEADER + EDIT_ADMIN_TEMPLATE, admin=admin, admin_id=admin_id)
 
 @app.route("/")
 @login_required
@@ -1061,7 +1101,6 @@ def create_protocol():
         flash("Protocol name too long (max 50 characters)", "error")
         return redirect(url_for("dashboard"))
 
-    # Check max protocols limit
     max_protocols = int(get_config_value('max_protocols_per_user', '10'))
     data = load_data()
     if len(data["protocols"]) >= max_protocols:
@@ -1085,7 +1124,6 @@ def delete_protocol(name):
     with get_db_connection() as conn:
         cursor = conn.cursor()
         
-        # Get user ID
         cursor.execute("SELECT id FROM users WHERE username = ?", (current_user.id,))
         user_row = cursor.fetchone()
         if not user_row:
@@ -1093,7 +1131,6 @@ def delete_protocol(name):
             return redirect(url_for("dashboard"))
         user_id = user_row[0]
         
-        # Get protocol ID
         cursor.execute("SELECT id FROM protocols WHERE user_id = ? AND name = ?", (user_id, name))
         protocol_row = cursor.fetchone()
         if not protocol_row:
@@ -1101,10 +1138,7 @@ def delete_protocol(name):
             return redirect(url_for("dashboard"))
         protocol_id = protocol_row[0]
         
-        # Delete protocol logs first (foreign key constraint)
         cursor.execute("DELETE FROM protocol_logs WHERE protocol_id = ?", (protocol_id,))
-        
-        # Delete the protocol
         cursor.execute("DELETE FROM protocols WHERE id = ?", (protocol_id,))
         
         conn.commit()
@@ -1147,7 +1181,6 @@ def edit_compounds(name):
         flash(f"Compounds updated successfully!", "success")
     return redirect(url_for("tracker", name=name))
 
-
 @app.route("/protocol/<name>/calendar")
 @login_required
 def calendar(name):
@@ -1183,7 +1216,6 @@ def history(name):
 @app.route("/protocol/<name>/reminder")
 @login_required
 def reminder(name):
-    # Check if email reminders are enabled
     if get_config_value('email_reminders_enabled', 'true') != 'true':
         flash("Email reminders are currently disabled", "error")
         return redirect(url_for("tracker", name=name))
@@ -1208,7 +1240,6 @@ def reminder(name):
 @app.route("/protocol/<name>/analytics")
 @login_required
 def analytics(name):
-    # Check if analytics is enabled
     if get_config_value('analytics_enabled', 'true') != 'true':
         flash("Analytics is currently disabled", "error")
         return redirect(url_for("tracker", name=name))
@@ -1217,16 +1248,13 @@ def analytics(name):
     prot = data["protocols"][name]
     logs = prot["logs"]
 
-    # Calculate analytics
     total_days = len(logs)
     if total_days == 0:
         return render_template_string(THEME_HEADER + ANALYTICS_TEMPLATE, 
                                     name=name, total_days=0, adherence=0, streak=0, 
                                     missed_days=0, compound_stats={})
 
-    adherence_data = []
     compound_stats = {}
-
     for compound in prot["compounds"]:
         taken_count = sum(1 for day_log in logs.values() 
                          if day_log.get(compound, {}).get("taken", False))
@@ -1236,13 +1264,11 @@ def analytics(name):
             "percentage": round((taken_count / total_days) * 100, 1)
         }
 
-    # Calculate overall adherence
     total_possible = total_days * len(prot["compounds"])
     total_taken = sum(sum(1 for entry in day_log.values() if entry.get("taken", False)) 
                      for day_log in logs.values())
     overall_adherence = round((total_taken / total_possible) * 100, 1) if total_possible > 0 else 0
 
-    # Calculate current streak
     sorted_dates = sorted(logs.keys(), reverse=True)
     current_streak = 0
     for date_str in sorted_dates:
@@ -1253,7 +1279,6 @@ def analytics(name):
         else:
             break
 
-    # Missed days
     missed_days = sum(1 for day_log in logs.values() 
                      if not all(entry.get("taken", False) for entry in day_log.values()))
 
@@ -1265,7 +1290,6 @@ def analytics(name):
 @app.route("/protocol/<name>/export/csv")
 @login_required
 def export_csv(name):
-    # Check if data export is enabled
     if get_config_value('data_export_enabled', 'true') != 'true':
         flash("Data export is currently disabled", "error")
         return redirect(url_for("tracker", name=name))
@@ -1276,11 +1300,9 @@ def export_csv(name):
     output = io.StringIO()
     writer = csv.writer(output)
 
-    # Headers
     headers = ["Date"] + prot["compounds"] + [f"{c}_Notes" for c in prot["compounds"]]
     writer.writerow(headers)
 
-    # Data rows
     for date_str, day_log in sorted(prot["logs"].items()):
         row = [date_str]
         for compound in prot["compounds"]:
@@ -1309,7 +1331,6 @@ def enhanced_tracking(name):
         if today not in prot["logs"]:
             prot["logs"][today] = {}
 
-        # Enhanced tracking data
         prot["logs"][today]["mood"] = request.form.get("mood", "")
         prot["logs"][today]["energy"] = request.form.get("energy", "")
         prot["logs"][today]["side_effects"] = request.form.get("side_effects", "")
@@ -1323,19 +1344,14 @@ def enhanced_tracking(name):
     return render_template_string(THEME_HEADER + ENHANCED_TRACKING_TEMPLATE,
                                 name=name, log=prot["logs"].get(today, {}), today=today)
 
-
 from sendgrid import SendGridAPIClient
 from sendgrid.helpers.mail import Mail
-from flask import flash
 
 def send_email(to_email, subject, body):
-    # Use database configuration for SendGrid
     api_key = get_config_value("sendgrid_api_key", "")
     from_email = get_config_value("sendgrid_from_email", "")
 
     if not api_key or not from_email:
-        print("❌ SendGrid configuration missing. Please configure SendGrid settings in Admin Dashboard.")
-        flash("Email configuration not set up. Please configure SendGrid settings in Admin Dashboard.", "error")
         return False
 
     try:
@@ -1349,20 +1365,13 @@ def send_email(to_email, subject, body):
         sg = SendGridAPIClient(api_key=api_key)
         response = sg.send(message)
         
-        if response.status_code == 202:
-            print(f"📧 Email sent successfully to {to_email}")
-            return True
-        else:
-            print(f"❌ SendGrid error: Status {response.status_code}")
-            flash(f"Email sending failed with status {response.status_code}", "error")
-            return False
+        return response.status_code == 202
 
     except Exception as e:
-        print(f"❌ SendGrid error: {str(e)}")
-        flash(f"Failed to send email: {str(e)}", "error")
+        print(f"SendGrid error: {str(e)}")
         return False
 
-
+# Templates
 AUTH_TEMPLATE = """
 <div class="container">
   <div class="card" style="max-width: 400px; margin: 80px auto;">
@@ -1429,6 +1438,7 @@ ADMIN_DASHBOARD_TEMPLATE = """
     <div class="nav-links">
       <a href="/admin/logout">🚪 Logout</a>
       <a href="/admin/2fa_setup">🔒 2FA Setup</a>
+      <a href="/admin/system_monitoring">📊 System Monitoring</a>
     </div>
   </div>
 
@@ -1442,6 +1452,14 @@ ADMIN_DASHBOARD_TEMPLATE = """
       <div style="background: var(--bg); padding: 16px; border-radius: 8px; text-align: center;">
         <h3 style="margin: 0; color: var(--success);">{{admin_count}}</h3>
         <p style="margin: 8px 0 0 0;">Total Admins</p>
+      </div>
+      <div style="background: var(--bg); padding: 16px; border-radius: 8px; text-align: center;">
+        <h3 style="margin: 0; color: var(--info);">{{protocol_count}}</h3>
+        <p style="margin: 8px 0 0 0;">Total Protocols</p>
+      </div>
+      <div style="background: var(--bg); padding: 16px; border-radius: 8px; text-align: center;">
+        <h3 style="margin: 0; color: var(--warning);">{{system_stats.get('cpu_percent', 0)}}%</h3>
+        <p style="margin: 8px 0 0 0;">CPU Usage</p>
       </div>
     </div>
   </div>
@@ -1458,6 +1476,14 @@ ADMIN_DASHBOARD_TEMPLATE = """
         <div class="form-group">
           <label>Max Protocols Per User</label>
           <input name="max_protocols_per_user" type="number" value="{{config.get('max_protocols_per_user', '10')}}" required>
+        </div>
+        <div class="form-group">
+          <label>Password Minimum Length</label>
+          <input name="password_min_length" type="number" value="{{config.get('password_min_length', '6')}}" required>
+        </div>
+        <div class="form-group">
+          <label>Max Login Attempts</label>
+          <input name="max_login_attempts" type="number" value="{{config.get('max_login_attempts', '5')}}" required>
         </div>
         <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 16px;">
           <label style="display: flex; align-items: center; gap: 8px;">
@@ -1476,6 +1502,14 @@ ADMIN_DASHBOARD_TEMPLATE = """
             <input type="checkbox" name="analytics_enabled" {% if config.get('analytics_enabled') == 'true' %}checked{% endif %}>
             Analytics Enabled
           </label>
+          <label style="display: flex; align-items: center; gap: 8px;">
+            <input type="checkbox" name="maintenance_mode" {% if config.get('maintenance_mode') == 'true' %}checked{% endif %}>
+            Maintenance Mode
+          </label>
+          <label style="display: flex; align-items: center; gap: 8px;">
+            <input type="checkbox" name="require_2fa" {% if config.get('require_2fa') == 'true' %}checked{% endif %}>
+            Require 2FA
+          </label>
         </div>
       </div>
       <button type="submit" class="btn-success">💾 Save Configuration</button>
@@ -1490,28 +1524,11 @@ ADMIN_DASHBOARD_TEMPLATE = """
           <label>SendGrid API Key</label>
           <input name="sendgrid_api_key" type="password" value="{{config.get('sendgrid_api_key', '')}}" 
                  placeholder="Enter your SendGrid API key">
-          <small style="color: var(--text); opacity: 0.7;">
-            Get your API key from SendGrid Dashboard → Settings → API Keys
-          </small>
         </div>
         <div class="form-group">
           <label>From Email Address</label>
           <input name="sendgrid_from_email" type="email" value="{{config.get('sendgrid_from_email', '')}}" 
                  placeholder="verified@yourdomain.com">
-          <small style="color: var(--text); opacity: 0.7;">
-            Must be a verified sender in your SendGrid account
-          </small>
-        </div>
-        <div style="background: var(--bg); padding: 16px; border-radius: 8px; border: 1px solid var(--border);">
-          <h4 style="margin: 0 0 8px 0; color: var(--primary);">📋 Setup Instructions:</h4>
-          <ol style="margin: 0; padding-left: 20px; font-size: 14px;">
-            <li>Create a SendGrid account at <a href="https://sendgrid.com" target="_blank">sendgrid.com</a></li>
-            <li>Go to Settings → API Keys → Create API Key</li>
-            <li>Give it "Mail Send" permissions</li>
-            <li>Copy the API key and paste it above</li>
-            <li>Go to Settings → Sender Authentication → Verify a Single Sender</li>
-            <li>Verify your email address and use it as the "From Email" above</li>
-          </ol>
         </div>
       </div>
       <button type="submit" class="btn-primary">📧 Save SendGrid Configuration</button>
@@ -1527,9 +1544,6 @@ ADMIN_DASHBOARD_TEMPLATE = """
         </div>
         <button type="submit" class="btn-success" style="margin: 0;">🚀 Send Test Email</button>
       </form>
-      <small style="color: var(--text); opacity: 0.7; margin-top: 8px; display: block;">
-        This will send a test email to verify your SendGrid configuration is working.
-      </small>
     </div>
   </div>
   {% endif %}
@@ -1540,16 +1554,6 @@ ADMIN_DASHBOARD_TEMPLATE = """
       <a href="/admin/users" class="btn-primary">👥 Manage Users</a>
     </div>
     <p>Manage user accounts, disable/enable users, reset 2FA, and modify user information.</p>
-    
-    <div style="margin-top: 16px; padding: 16px; background: var(--bg); border-radius: 8px; border: 1px solid var(--border);">
-      <h4 style="margin: 0 0 12px 0; color: var(--primary);">🔧 Available User Actions:</h4>
-      <ul style="margin: 0; padding-left: 20px; font-size: 14px;">
-        <li><strong>Edit Users:</strong> Modify email addresses and reset passwords</li>
-        <li><strong>Disable/Enable:</strong> Temporarily disable user accounts</li>
-        <li><strong>Reset 2FA:</strong> Reset two-factor authentication for users</li>
-        <li><strong>Delete Users:</strong> Permanently remove user accounts and all data</li>
-      </ul>
-    </div>
   </div>
 
   {% if current_admin.role == 'Super Admin' %}
@@ -1590,19 +1594,6 @@ ADMIN_DASHBOARD_TEMPLATE = """
             <td>
               {% if admin[0] != current_admin.username %}
               <div style="display: flex; gap: 4px; flex-wrap: wrap;">
-                <a href="/admin/admins/{{admin[5]}}/edit" class="btn-primary btn-small">✏️ Edit</a>
-                <form method="POST" action="/admin/admins/{{admin[5]}}/reset_2fa" style="display: inline;">
-                  <button type="submit" class="btn-warning btn-small" onclick="return confirm('Reset 2FA for {{admin[0]}}?')">🔄 Reset 2FA</button>
-                </form>
-                {% if admin[4] %}
-                <form method="POST" action="/admin/admins/{{admin[5]}}/enable" style="display: inline;">
-                  <button type="submit" class="btn-success btn-small">✅ Enable</button>
-                </form>
-                {% else %}
-                <form method="POST" action="/admin/admins/{{admin[5]}}/disable" style="display: inline;">
-                  <button type="submit" class="btn-warning btn-small" onclick="return confirm('Disable admin {{admin[0]}}?')">⏸️ Disable</button>
-                </form>
-                {% endif %}
                 <form method="POST" action="/admin/delete_admin/{{admin[0]}}" style="display: inline;"
                       onsubmit="return confirm('Delete admin {{admin[0]}}? This cannot be undone.')">
                   <button type="submit" class="btn-danger btn-small">🗑️ Delete</button>
@@ -1619,28 +1610,101 @@ ADMIN_DASHBOARD_TEMPLATE = """
   {% endif %}
 
   <div class="card">
-    <h2>👤 Recent User Activity</h2>
-    {% if recent_users %}
+    <h2>🔍 Recent System Logs</h2>
+    {% if recent_logs %}
       <table>
         <thead>
           <tr>
-            <th>Username</th>
-            <th>Last Login</th>
+            <th>Type</th>
+            <th>Message</th>
+            <th>Severity</th>
+            <th>Time</th>
           </tr>
         </thead>
         <tbody>
-          {% for user in recent_users %}
+          {% for log in recent_logs %}
           <tr>
-            <td>{{user[0]}}</td>
-            <td>{{user[1] or 'Never'}}</td>
+            <td>{{log[0]}}</td>
+            <td>{{log[1]}}</td>
+            <td>
+              <span class="status-badge {{ 'status-danger' if log[2] == 'error' else 'status-warning' if log[2] == 'warning' else 'status-success' }}">
+                {{log[2]}}
+              </span>
+            </td>
+            <td>{{log[3]}}</td>
           </tr>
           {% endfor %}
         </tbody>
       </table>
     {% else %}
-      <p style="text-align: center; color: #6b7280; margin: 40px 0;">No user activity yet.</p>
+      <p style="text-align: center; color: #6b7280; margin: 40px 0;">No recent system logs.</p>
     {% endif %}
   </div>
+</div>
+"""
+
+SYSTEM_MONITORING_TEMPLATE = """
+<div class="container">
+  <div class="card">
+    <h1>📊 System Monitoring</h1>
+    <div class="nav-links">
+      <a href="/admin/dashboard">← Back to Dashboard</a>
+    </div>
+  </div>
+
+  <div class="card">
+    <h2>🖥️ System Health</h2>
+    <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 16px;">
+      <div style="background: var(--bg); padding: 16px; border-radius: 8px; text-align: center;">
+        <h3 style="margin: 0; color: var(--primary);">{{system_stats.get('uptime', 0) | round(2)}}s</h3>
+        <p style="margin: 8px 0 0 0;">System Uptime</p>
+      </div>
+      <div style="background: var(--bg); padding: 16px; border-radius: 8px; text-align: center;">
+        <h3 style="margin: 0; color: var(--warning);">{{system_stats.get('cpu_percent', 0)}}%</h3>
+        <p style="margin: 8px 0 0 0;">CPU Usage</p>
+      </div>
+      <div style="background: var(--bg); padding: 16px; border-radius: 8px; text-align: center;">
+        <h3 style="margin: 0; color: var(--info);">{{system_stats.get('memory_percent', 0)}}%</h3>
+        <p style="margin: 8px 0 0 0;">Memory Usage</p>
+      </div>
+      <div style="background: var(--bg); padding: 16px; border-radius: 8px; text-align: center;">
+        <h3 style="margin: 0; color: var(--success);">{{(db_size / 1024 / 1024) | round(2)}} MB</h3>
+        <p style="margin: 8px 0 0 0;">Database Size</p>
+      </div>
+    </div>
+  </div>
+
+  <div class="card">
+    <h2>👥 Active Sessions</h2>
+    <p>Active users in the last hour: <strong>{{active_sessions}}</strong></p>
+  </div>
+
+  <div class="card">
+    <h2>🔐 Security Alerts</h2>
+    <p>Failed login attempts in last 24 hours: <strong>{{failed_logins_24h}}</strong></p>
+  </div>
+
+  {% if recent_errors %}
+  <div class="card">
+    <h2>❌ Recent Errors</h2>
+    <table>
+      <thead>
+        <tr>
+          <th>Error Message</th>
+          <th>Time</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for error in recent_errors %}
+        <tr>
+          <td>{{error[0]}}</td>
+          <td>{{error[1]}}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% endif %}
 </div>
 """
 
@@ -1672,18 +1736,12 @@ TWOFA_SETUP_TEMPLATE = """
 
     <div style="background: var(--bg); padding: 20px; border-radius: 12px; margin: 20px 0; border: 2px solid var(--border);">
       <h3 style="margin: 0 0 12px 0; color: var(--primary);">Manual Entry Code</h3>
-      <p style="margin: 0 0 8px 0; font-size: 14px; opacity: 0.8;">If you cannot scan the QR code, enter this code manually:</p>
       <div style="background: var(--card-bg); padding: 16px; border-radius: 8px; margin: 12px 0;">
-        <code style="font-size: 18px; font-weight: bold; color: var(--primary); letter-spacing: 2px; word-break: break-all;">{{secret}}</code>
+        <code style="font-size: 18px; font-weight: bold; color: var(--primary); letter-spacing: 2px;">{{secret}}</code>
       </div>
-      <p style="margin: 8px 0 0 0; font-size: 12px; opacity: 0.6;">
-        Account: {{username}}<br>
-        Issuer: SupplementTracker
-      </p>
     </div>
 
     <div style="margin: 32px 0;">
-      <p style="font-size: 14px; margin-bottom: 16px;">After adding the account to your authenticator app, click below to verify:</p>
       <a href="/2fa" class="btn-primary" style="display: inline-block; padding: 16px 32px; text-decoration: none; border-radius: 8px; font-size: 16px;">Continue to Verify →</a>
     </div>
   </div>
@@ -1702,18 +1760,12 @@ ADMIN_TWOFA_SETUP_TEMPLATE = """
 
     <div style="background: var(--bg); padding: 20px; border-radius: 12px; margin: 20px 0; border: 2px solid var(--border);">
       <h3 style="margin: 0 0 12px 0; color: var(--primary);">Manual Entry Code</h3>
-      <p style="margin: 0 0 8px 0; font-size: 14px; opacity: 0.8;">If you cannot scan the QR code, enter this code manually:</p>
       <div style="background: var(--card-bg); padding: 16px; border-radius: 8px; margin: 12px 0;">
-        <code style="font-size: 18px; font-weight: bold; color: var(--primary); letter-spacing: 2px; word-break: break-all;">{{secret}}</code>
+        <code style="font-size: 18px; font-weight: bold; color: var(--primary); letter-spacing: 2px;">{{secret}}</code>
       </div>
-      <p style="margin: 8px 0 0 0; font-size: 12px; opacity: 0.6;">
-        Account: admin_{{username}}<br>
-        Issuer: SupplementTracker-Admin
-      </p>
     </div>
 
     <div style="margin: 32px 0;">
-      <p style="font-size: 14px; margin-bottom: 16px;">After adding the account to your authenticator app, click below to verify:</p>
       <a href="/admin/2fa" class="btn-primary" style="display: inline-block; padding: 16px 32px; text-decoration: none; border-radius: 8px; font-size: 16px;">Continue to Verify →</a>
     </div>
   </div>
@@ -1780,7 +1832,7 @@ a {
   transition: color 0.2s;
 }
 a:hover { color: var(--primary-hover); }
-input, button, textarea { 
+input, button, textarea, select { 
   background: var(--input-bg); 
   color: var(--text); 
   border: 1px solid var(--border); 
@@ -1790,7 +1842,7 @@ input, button, textarea {
   font-size: 14px;
   transition: all 0.2s;
 }
-input:focus, textarea:focus { 
+input:focus, textarea:focus, select:focus { 
   outline: none; 
   border-color: var(--primary); 
   box-shadow: 0 0 0 3px rgb(59 130 246 / 0.1);
@@ -2026,7 +2078,6 @@ document.addEventListener('DOMContentLoaded', () => {
 </script>
 """
 
-
 DASHBOARD_TEMPLATE = """
 <div class="container">
   <div class="card">
@@ -2079,8 +2130,6 @@ DASHBOARD_TEMPLATE = """
       </p>
     {% endif %}
   </div>
-
-  
 </div>
 """
 
@@ -2351,16 +2400,6 @@ ADMIN_USERS_TEMPLATE = """
         Total: {{total_users}} users | Showing {{(current_page-1)*per_page + 1}}-{{((current_page-1)*per_page + users|length)}} of {{total_users}}
       </div>
     </div>
-
-    <div style="margin-bottom: 16px; padding: 16px; background: var(--bg); border-radius: 8px; border: 1px solid var(--border);">
-      <h4 style="margin: 0 0 12px 0; color: var(--primary);">🔧 Available User Actions:</h4>
-      <ul style="margin: 0; padding-left: 20px; font-size: 14px;">
-        <li><strong>Edit Users:</strong> Modify email addresses and reset passwords</li>
-        <li><strong>Disable/Enable:</strong> Temporarily disable user accounts</li>
-        <li><strong>Reset 2FA:</strong> Reset two-factor authentication for users</li>
-        <li><strong>Delete Users:</strong> Permanently remove user accounts and all data</li>
-      </ul>
-    </div>
     
     {% if users %}
       <table>
@@ -2447,10 +2486,6 @@ ADMIN_USERS_TEMPLATE = """
           <span class="btn-small" style="background: var(--bg); color: var(--text); opacity: 0.5; cursor: not-allowed;">Next →</span>
         {% endif %}
       </div>
-      
-      <div style="text-align: center; color: var(--text); opacity: 0.7; font-size: 14px; margin-top: 16px;">
-        Page {{current_page}} of {{total_pages}} | {{per_page}} users per page
-      </div>
       {% endif %}
 
     {% else %}
@@ -2529,8 +2564,6 @@ EDIT_ADMIN_TEMPLATE = """
   </div>
 </div>
 """
-
-
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=5000)
