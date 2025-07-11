@@ -314,7 +314,7 @@ struct AnalyticsTabView: View {
             .onAppear {
                 fetchProtocols()
             }
-            .onChange(of: selectedProtocolId) { newValue in
+            .onChange(of: selectedProtocolId) { _, newValue in
                 if let protocolId = newValue {
                     fetchAnalytics(for: protocolId)
                 }
@@ -365,7 +365,7 @@ struct AnalyticsDetailView: View {
                 GridItem(.flexible())
             ], spacing: 16) {
                 AnalyticsCard(title: "Total Days", value: "\(analytics.totalDays)", color: .blue)
-                AnalyticsCard(title: "Adherence", value: "\(analytics.adherence, specifier: "%.1f")%", color: .green)
+                AnalyticsCard(title: "Adherence", value: String(format: "%.1f%%", analytics.adherence), color: .green)
                 AnalyticsCard(title: "Current Streak", value: "\(analytics.streak)", color: .orange)
                 AnalyticsCard(title: "Missed Days", value: "\(analytics.missedDays)", color: .red)
             }
@@ -420,7 +420,7 @@ struct CompoundStatsRow: View {
                     .font(.subheadline)
                     .fontWeight(.medium)
                 Spacer()
-                Text("\(stats.percentage, specifier: "%.1f")%")
+                Text(String(format: "%.1f%%", stats.percentage))
                     .font(.subheadline)
                     .fontWeight(.semibold)
                     .foregroundColor(stats.percentage >= 80 ? .green : stats.percentage >= 60 ? .orange : .red)
@@ -579,6 +579,8 @@ struct NotificationRowView: View {
         return dateString
     }
 }
+
+
 
 struct ProtocolRowView: View {
     let protocolItem: ProtocolModel

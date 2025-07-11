@@ -9,12 +9,12 @@
 import Foundation
 
 struct ProtocolModel: Identifiable, Codable {
-    let id: String
-    let name: String
-    let compounds: [String]
-    let frequency: String
-    let description: String
-    let createdAt: String?
+    var id: String
+    var name: String
+    var compounds: [String]
+    var frequency: String
+    var description: String
+    var createdAt: String?
 
     enum CodingKeys: String, CodingKey {
         case id, name, compounds, frequency, description, createdAt
