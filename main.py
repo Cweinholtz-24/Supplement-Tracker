@@ -34,6 +34,7 @@ def init_db():
                 password_hash TEXT NOT NULL,
                 twofa_secret TEXT NOT NULL,
                 email TEXT DEFAULT '',
+                disabled BOOLEAN DEFAULT FALSE,
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                 last_login TIMESTAMP
             )
@@ -48,6 +49,7 @@ def init_db():
                 twofa_secret TEXT NOT NULL,
                 role TEXT DEFAULT 'Admin',
                 email TEXT DEFAULT '',
+                disabled BOOLEAN DEFAULT FALSE,
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                 last_login TIMESTAMP
             )
@@ -131,6 +133,19 @@ def init_db():
         ''')
 
         conn.commit()
+        
+        # Add migration for disabled columns if they don't exist
+        try:
+            cursor.execute("ALTER TABLE users ADD COLUMN disabled BOOLEAN DEFAULT FALSE")
+            conn.commit()
+        except sqlite3.OperationalError:
+            pass  # Column already exists
+            
+        try:
+            cursor.execute("ALTER TABLE admins ADD COLUMN disabled BOOLEAN DEFAULT FALSE")
+            conn.commit()
+        except sqlite3.OperationalError:
+            pass  # Column already exists
 
 def get_db_connection():
     """Get database connection"""
@@ -1499,6 +1514,16 @@ ADMIN_DASHBOARD_TEMPLATE = """
       <a href="/admin/users" class="btn-primary">👥 Manage Users</a>
     </div>
     <p>Manage user accounts, disable/enable users, reset 2FA, and modify user information.</p>
+    
+    <div style="margin-top: 16px; padding: 16px; background: var(--bg); border-radius: 8px; border: 1px solid var(--border);">
+      <h4 style="margin: 0 0 12px 0; color: var(--primary);">🔧 Available User Actions:</h4>
+      <ul style="margin: 0; padding-left: 20px; font-size: 14px;">
+        <li><strong>Edit Users:</strong> Modify email addresses and reset passwords</li>
+        <li><strong>Disable/Enable:</strong> Temporarily disable user accounts</li>
+        <li><strong>Reset 2FA:</strong> Reset two-factor authentication for users</li>
+        <li><strong>Delete Users:</strong> Permanently remove user accounts and all data</li>
+      </ul>
+    </div>
   </div>
 
   {% if current_admin.role == 'Super Admin' %}
