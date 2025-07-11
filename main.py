@@ -270,12 +270,37 @@ TWOFA_TEMPLATE = """
 
 THEME_HEADER = """
 <style>
-body { background: var(--bg); color: var(--text); font-family: sans-serif; transition: 0.3s; }
-a, input, button { color: inherit; background: none; }
-input, button { border: 1px solid #888; padding: 4px; margin: 2px; }
-:root { --bg: #fff; --text: #111; }
-body.dark { --bg: #111; --text: #eee; }
-.theme-toggle { position: absolute; top: 8px; right: 12px; font-size: 14px; }
+:root { --bg: #fff; --text: #111; --border: #ccc; --input-bg: #fff; }
+body.dark { --bg: #111; --text: #eee; --border: #555; --input-bg: #222; }
+body { 
+  background: var(--bg); 
+  color: var(--text); 
+  font-family: sans-serif; 
+  transition: 0.3s; 
+}
+a { color: #007bff; text-decoration: none; }
+body.dark a { color: #66b3ff; }
+a:hover { text-decoration: underline; }
+input, button { 
+  background: var(--input-bg); 
+  color: var(--text); 
+  border: 1px solid var(--border); 
+  padding: 4px; 
+  margin: 2px; 
+  border-radius: 3px;
+}
+button { cursor: pointer; }
+button:hover { opacity: 0.8; }
+table { border-collapse: collapse; }
+table, th, td { border: 1px solid var(--border); }
+th, td { padding: 8px; }
+.theme-toggle { 
+  position: absolute; 
+  top: 8px; 
+  right: 12px; 
+  font-size: 14px; 
+  background: var(--input-bg);
+}
 </style>
 <script>
 document.addEventListener('DOMContentLoaded', () => {
@@ -322,7 +347,7 @@ TRACKER_TEMPLATE = """
 <form method="POST">
   <p>Email for reminders: <input name="email" value="{{email}}"></p>
   <p>📅 Today: {{today}}</p>
-  <table border="1"><tr><th>Compound</th><th>Taken?</th><th>Notes</th></tr>
+  <table><tr><th>Compound</th><th>Taken?</th><th>Notes</th></tr>
   {% for c in compounds %}
     <tr>
       <td>{{c}}</td>
