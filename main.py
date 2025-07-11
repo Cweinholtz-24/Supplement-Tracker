@@ -48,6 +48,32 @@ def init_db():
                 location TEXT DEFAULT ''
             )
         ''')
+        
+        # Add missing columns if they don't exist
+        try:
+            cursor.execute("ALTER TABLE users ADD COLUMN location TEXT DEFAULT ''")
+        except sqlite3.OperationalError:
+            pass  # Column already exists
+        
+        try:
+            cursor.execute("ALTER TABLE users ADD COLUMN custom_fields TEXT DEFAULT '{}'")
+        except sqlite3.OperationalError:
+            pass  # Column already exists
+        
+        try:
+            cursor.execute("ALTER TABLE users ADD COLUMN ip_address TEXT DEFAULT ''")
+        except sqlite3.OperationalError:
+            pass  # Column already exists
+        
+        try:
+            cursor.execute("ALTER TABLE users ADD COLUMN login_attempts INTEGER DEFAULT 0")
+        except sqlite3.OperationalError:
+            pass  # Column already exists
+        
+        try:
+            cursor.execute("ALTER TABLE users ADD COLUMN last_failed_login TIMESTAMP")
+        except sqlite3.OperationalError:
+            pass  # Column already exists
 
         # Admins table
         cursor.execute('''
@@ -66,6 +92,22 @@ def init_db():
                 last_failed_login TIMESTAMP
             )
         ''')
+        
+        # Add missing columns if they don't exist
+        try:
+            cursor.execute("ALTER TABLE admins ADD COLUMN permissions TEXT DEFAULT '{}'")
+        except sqlite3.OperationalError:
+            pass  # Column already exists
+        
+        try:
+            cursor.execute("ALTER TABLE admins ADD COLUMN login_attempts INTEGER DEFAULT 0")
+        except sqlite3.OperationalError:
+            pass  # Column already exists
+        
+        try:
+            cursor.execute("ALTER TABLE admins ADD COLUMN last_failed_login TIMESTAMP")
+        except sqlite3.OperationalError:
+            pass  # Column already exists
 
         # Protocols table
         cursor.execute('''
@@ -206,9 +248,17 @@ def init_db():
 
 def get_db_connection():
     """Get database connection"""
-    conn = sqlite3.connect(DB_PATH)
-    conn.row_factory = sqlite3.Row
-    return conn
+    try:
+        conn = sqlite3.connect(DB_PATH, timeout=20.0)
+        conn.row_factory = sqlite3.Row
+        conn.execute("PRAGMA journal_mode=WAL")
+        conn.execute("PRAGMA synchronous=NORMAL")
+        conn.execute("PRAGMA cache_size=1000")
+        conn.execute("PRAGMA temp_store=MEMORY")
+        return conn
+    except sqlite3.Error as e:
+        log_system_event('database_error', f'Database connection error: {str(e)}', 'error')
+        raise
 
 def get_app_config():
     """Get all app configuration from database"""
@@ -301,108 +351,119 @@ def load_user(user_id):
 def load_data(username=None):
     """Load user data from database"""
     username = username or current_user.id
-    with get_db_connection() as conn:
-        cursor = conn.cursor()
-        cursor.execute('''
-            SELECT password_hash, twofa_secret, email 
-            FROM users WHERE username = ?
-        ''', (username,))
-        row = cursor.fetchone()
-        if not row:
-            return {"password": "", "2fa_secret": "", "protocols": {}, "email": ""}
-
-        cursor.execute('''
-            SELECT name, compounds FROM protocols 
-            WHERE user_id = (SELECT id FROM users WHERE username = ?)
-        ''', (username,))
-        protocols = {}
-        for protocol_row in cursor.fetchall():
-            protocol_name = protocol_row[0]
-            compounds = json.loads(protocol_row[1])
+    try:
+        with get_db_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute('''
+                SELECT password_hash, twofa_secret, email 
+                FROM users WHERE username = ?
+            ''', (username,))
+            row = cursor.fetchone()
+            if not row:
+                return {"password": "", "2fa_secret": "", "protocols": {}, "email": ""}
 
             cursor.execute('''
-                SELECT log_date, compound, taken, note, mood, energy, side_effects, weight, general_notes
-                FROM protocol_logs pl
-                JOIN protocols p ON pl.protocol_id = p.id
-                WHERE p.name = ? AND p.user_id = (SELECT id FROM users WHERE username = ?)
-            ''', (protocol_name, username))
+                SELECT name, compounds FROM protocols 
+                WHERE user_id = (SELECT id FROM users WHERE username = ?)
+            ''', (username,))
+            protocols = {}
+            for protocol_row in cursor.fetchall():
+                protocol_name = protocol_row[0]
+                try:
+                    compounds = json.loads(protocol_row[1])
+                except json.JSONDecodeError:
+                    compounds = []
 
-            logs = {}
-            for log_row in cursor.fetchall():
-                log_date = log_row[0]
-                if log_date not in logs:
-                    logs[log_date] = {}
-                logs[log_date][log_row[1]] = {
-                    "taken": bool(log_row[2]),
-                    "note": log_row[3] or "",
-                    "mood": log_row[4] or "",
-                    "energy": log_row[5] or "",
-                    "side_effects": log_row[6] or "",
-                    "weight": log_row[7] or "",
-                    "notes": log_row[8] or ""
+                cursor.execute('''
+                    SELECT log_date, compound, taken, note, mood, energy, side_effects, weight, general_notes
+                    FROM protocol_logs pl
+                    JOIN protocols p ON pl.protocol_id = p.id
+                    WHERE p.name = ? AND p.user_id = (SELECT id FROM users WHERE username = ?)
+                ''', (protocol_name, username))
+
+                logs = {}
+                for log_row in cursor.fetchall():
+                    log_date = log_row[0]
+                    if log_date not in logs:
+                        logs[log_date] = {}
+                    logs[log_date][log_row[1]] = {
+                        "taken": bool(log_row[2]),
+                        "note": log_row[3] or "",
+                        "mood": log_row[4] or "",
+                        "energy": log_row[5] or "",
+                        "side_effects": log_row[6] or "",
+                        "weight": log_row[7] or "",
+                        "notes": log_row[8] or ""
+                    }
+
+                protocols[protocol_name] = {
+                    "compounds": compounds,
+                    "logs": logs
                 }
 
-            protocols[protocol_name] = {
-                "compounds": compounds,
-                "logs": logs
+            return {
+                "password": row[0],
+                "2fa_secret": row[1],
+                "email": row[2] or "",
+                "protocols": protocols
             }
-
-        return {
-            "password": row[0],
-            "2fa_secret": row[1],
-            "email": row[2] or "",
-            "protocols": protocols
-        }
+    except sqlite3.Error as e:
+        log_system_event('database_error', f'Error loading data for user {username}: {str(e)}', 'error')
+        return {"password": "", "2fa_secret": "", "protocols": {}, "email": ""}
 
 def save_data(data, username=None):
     """Save user data to database"""
     username = username or current_user.id
-    with get_db_connection() as conn:
-        cursor = conn.cursor()
-
-        cursor.execute('''
-            UPDATE users SET email = ? WHERE username = ?
-        ''', (data.get("email", ""), username))
-
-        cursor.execute("SELECT id FROM users WHERE username = ?", (username,))
-        user_row = cursor.fetchone()
-        if not user_row:
-            return
-        user_id = user_row[0]
-
-        for protocol_name, protocol_data in data.get("protocols", {}).items():
-            compounds = json.dumps(protocol_data.get("compounds", []))
+    try:
+        with get_db_connection() as conn:
+            cursor = conn.cursor()
 
             cursor.execute('''
-                INSERT OR REPLACE INTO protocols (user_id, name, compounds)
-                VALUES (?, ?, ?)
-            ''', (user_id, protocol_name, compounds))
+                UPDATE users SET email = ? WHERE username = ?
+            ''', (data.get("email", ""), username))
 
-            cursor.execute("SELECT id FROM protocols WHERE user_id = ? AND name = ?", 
-                         (user_id, protocol_name))
-            protocol_row = cursor.fetchone()
-            if not protocol_row:
-                continue
-            protocol_id = protocol_row[0]
+            cursor.execute("SELECT id FROM users WHERE username = ?", (username,))
+            user_row = cursor.fetchone()
+            if not user_row:
+                return
+            user_id = user_row[0]
 
-            logs = protocol_data.get("logs", {})
-            for log_date, entries in logs.items():
-                for compound, entry_data in entries.items():
-                    cursor.execute('''
-                        INSERT OR REPLACE INTO protocol_logs 
-                        (protocol_id, log_date, compound, taken, note, mood, energy, 
-                         side_effects, weight, general_notes)
-                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                    ''', (protocol_id, log_date, compound,
-                          entry_data.get("taken", False),
-                          entry_data.get("note", ""),
-                          entry_data.get("mood", ""),
-                          entry_data.get("energy", ""),
-                          entry_data.get("side_effects", ""),
-                          entry_data.get("weight", ""),
-                          entry_data.get("notes", "")))
+            for protocol_name, protocol_data in data.get("protocols", {}).items():
+                compounds = json.dumps(protocol_data.get("compounds", []))
 
-        conn.commit()
+                cursor.execute('''
+                    INSERT OR REPLACE INTO protocols (user_id, name, compounds)
+                    VALUES (?, ?, ?)
+                ''', (user_id, protocol_name, compounds))
+
+                cursor.execute("SELECT id FROM protocols WHERE user_id = ? AND name = ?", 
+                             (user_id, protocol_name))
+                protocol_row = cursor.fetchone()
+                if not protocol_row:
+                    continue
+                protocol_id = protocol_row[0]
+
+                logs = protocol_data.get("logs", {})
+                for log_date, entries in logs.items():
+                    for compound, entry_data in entries.items():
+                        cursor.execute('''
+                            INSERT OR REPLACE INTO protocol_logs 
+                            (protocol_id, log_date, compound, taken, note, mood, energy, 
+                             side_effects, weight, general_notes)
+                            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        ''', (protocol_id, log_date, compound,
+                              entry_data.get("taken", False),
+                              entry_data.get("note", ""),
+                              entry_data.get("mood", ""),
+                              entry_data.get("energy", ""),
+                              entry_data.get("side_effects", ""),
+                              entry_data.get("weight", ""),
+                              entry_data.get("notes", "")))
+
+            conn.commit()
+    except sqlite3.Error as e:
+        log_system_event('database_error', f'Error saving data for user {username}: {str(e)}', 'error')
+        raise
 
 @app.route("/register", methods=["GET", "POST"])
 def register():
@@ -938,10 +999,10 @@ def admin_users():
         # Get paginated users
         cursor.execute('''
             SELECT u.id, u.username, u.email, u.created_at, u.last_login,
-                   COUNT(p.id) as protocol_count, u.disabled, u.location, u.login_attempts
+                   COUNT(p.id) as protocol_count, u.disabled, u.login_attempts
             FROM users u
             LEFT JOIN protocols p ON u.id = p.user_id
-            GROUP BY u.id, u.username, u.email, u.created_at, u.last_login, u.disabled, u.location, u.login_attempts
+            GROUP BY u.id, u.username, u.email, u.created_at, u.last_login, u.disabled, u.login_attempts
             ORDER BY u.username
             LIMIT ? OFFSET ?
         ''', (per_page, offset))
