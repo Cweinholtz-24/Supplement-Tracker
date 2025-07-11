@@ -13,7 +13,7 @@ class APIService: ObservableObject {
     static let shared = APIService()
     
     // Replace this with your actual Replit app URL
-    private let baseURL = "https://supplement-tracker-app.replit.app"
+    private let baseURL = "https://suptidetracker.replit.app"
     
     @Published var isAuthenticated = false
     @Published var authToken: String?
