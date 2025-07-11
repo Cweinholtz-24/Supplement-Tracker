@@ -1,4 +1,3 @@
-
 //
 //  DashboardView.swift
 //  SupplementTracker
@@ -17,7 +16,7 @@ struct DashboardView: View {
     @State private var showingCreateProtocol = false
     @State private var newProtocolName = ""
     @State private var isCreating = false
-    
+
     var body: some View {
         NavigationView {
             VStack(spacing: 20) {
@@ -29,17 +28,17 @@ struct DashboardView: View {
                         Image(systemName: "pills.fill")
                             .font(.system(size: 60))
                             .foregroundColor(.gray)
-                        
+
                         Text("No Protocols Yet")
                             .font(.title2)
                             .fontWeight(.semibold)
-                        
+
                         Text("Create your first supplement protocol to start tracking")
                             .font(.body)
                             .foregroundColor(.secondary)
                             .multilineTextAlignment(.center)
                             .padding(.horizontal)
-                        
+
                         Button("Create Protocol") {
                             showingCreateProtocol = true
                         }
@@ -56,7 +55,7 @@ struct DashboardView: View {
                         }
                     }
                 }
-                
+
                 Spacer()
             }
             .navigationTitle("My Protocols")
@@ -68,7 +67,7 @@ struct DashboardView: View {
                     }
                     .foregroundColor(.blue)
                 }
-                
+
                 ToolbarItem(placement: .navigationBarTrailing) {
                     Button("Logout") {
                         apiService.logout()
@@ -98,7 +97,7 @@ struct DashboardView: View {
             loadProtocols()
         }
     }
-    
+
     private func loadProtocols() {
         isLoading = true
         apiService.fetchProtocols { result in
@@ -114,16 +113,17 @@ struct DashboardView: View {
             }
         }
     }
-    
+
     private func createProtocol() {
         guard !newProtocolName.isEmpty else { return }
-        
+
         isCreating = true
         let defaultCompounds = ["FOXO4-DRI", "Fisetin", "Quercetin"]
-        
-        apiService.createProtocol(name: newProtocolName, compounds: defaultCompounds) { result in
+
+        apiService.createProtocol(name: newProtocolName, compounds: ["Vitamin D", "Omega-3"]) { result in
             DispatchQueue.main.async {
                 isCreating = false
+                showingCreateProtocol = false
                 switch result {
                 case .success(let newProtocol):
                     protocols.append(newProtocol)

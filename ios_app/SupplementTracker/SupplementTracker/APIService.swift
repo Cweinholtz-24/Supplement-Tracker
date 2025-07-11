@@ -139,10 +139,10 @@ class APIService: ObservableObject {
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         
-        let protocolData = CreateProtocolRequest(name: name, compounds: compounds)
+        let requestData = CreateProtocolRequest(name: name, compounds: compounds)
         
         do {
-            request.httpBody = try JSONEncoder().encode(protocolData)
+            request.httpBody = try JSONEncoder().encode(requestData)
         } catch {
             completion(.failure(error))
             return
@@ -175,8 +175,8 @@ class APIService: ObservableObject {
             
             if httpResponse.statusCode == 201 {
                 do {
-                    let protocol = try JSONDecoder().decode(ProtocolModel.self, from: data)
-                    completion(.success(protocol))
+                    let protocolResponse = try JSONDecoder().decode(ProtocolModel.self, from: data)
+                    completion(.success(protocolResponse))
                 } catch {
                     completion(.failure(error))
                 }
