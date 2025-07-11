@@ -84,11 +84,8 @@ struct LoginView: View {
                             .keyboardType(.numberPad)
                             .multilineTextAlignment(.center)
                             .font(.title2)
-                            .onChange(of: twoFACode) { newValue in
-                                // Limit to 6 digits
-                                if newValue.count > 6 {
-                                    twoFACode = String(newValue.prefix(6))
-                                }
+                            .onChange(of: twoFACode) { _ in
+                                handleTwoFACodeChange()
                             }
 
                         Button(action: verify2FA) {
@@ -110,8 +107,7 @@ struct LoginView: View {
                         .disabled(twoFACode.count != 6 || isLoading)
                         
                         Button("← Back to Login") {
-                            apiService.requires2FA = false
-                            twoFACode = ""
+                            resetToLogin()
                         }
                         .foregroundColor(.blue)
                     }
@@ -123,12 +119,27 @@ struct LoginView: View {
         }
         .alert("Authentication Failed", isPresented: $showingError) {
             Button("OK") { 
-                if apiService.requires2FA {
-                    twoFACode = ""
-                }
+                handleErrorOK()
             }
         } message: {
             Text(errorMessage)
+        }
+    }
+    
+    private func handleTwoFACodeChange() {
+        if twoFACode.count > 6 {
+            twoFACode = String(twoFACode.prefix(6))
+        }
+    }
+    
+    private func resetToLogin() {
+        apiService.requires2FA = false
+        twoFACode = ""
+    }
+    
+    private func handleErrorOK() {
+        if apiService.requires2FA {
+            twoFACode = ""
         }
     }
 
