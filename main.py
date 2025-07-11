@@ -263,69 +263,266 @@ def send_email(to_email, subject, body):
 
 
 AUTH_TEMPLATE = """
-<h2>{{title}}</h2>
-<form method="POST">
-  Username: <input name="username"><br>
-  Password: <input type="password" name="password"><br>
-  <button type="submit">{{title}}</button>
-</form>
-<a href="/login">Login</a> | <a href="/register">Register</a>
+<div class="container">
+  <div class="card" style="max-width: 400px; margin: 80px auto;">
+    <h2>🔐 {{title}}</h2>
+    <form method="POST">
+      <div class="form-group">
+        <label>Username</label>
+        <input name="username" required>
+      </div>
+      <div class="form-group">
+        <label>Password</label>
+        <input type="password" name="password" required>
+      </div>
+      <button type="submit" class="btn-primary">{{title}}</button>
+    </form>
+    <div class="nav-links" style="justify-content: center; margin-top: 24px;">
+      <a href="/login">Login</a>
+      <a href="/register">Register</a>
+    </div>
+  </div>
+</div>
 """
 
 TWOFA_TEMPLATE = """
-<h2>Two-Factor Authentication</h2>
-<form method="POST">
-  Code: <input name="code" required>
-  <button type="submit">Verify</button>
-</form>
+<div class="container">
+  <div class="card" style="max-width: 400px; margin: 80px auto;">
+    <h2>🔐 Two-Factor Authentication</h2>
+    <p>Enter the 6-digit code from your authenticator app:</p>
+    <form method="POST">
+      <div class="form-group">
+        <input name="code" required placeholder="000000" maxlength="6" 
+               style="text-align: center; font-size: 24px; letter-spacing: 8px;">
+      </div>
+      <button type="submit" class="btn-primary">Verify Code</button>
+    </form>
+  </div>
+</div>
 """
 
 THEME_HEADER = """
 <style>
-:root { --bg: #fff; --text: #111; --border: #ccc; --input-bg: #fff; }
-body.dark { --bg: #111; --text: #eee; --border: #555; --input-bg: #222; }
+:root { 
+  --bg: #f8fafc; 
+  --text: #334155; 
+  --border: #e2e8f0; 
+  --input-bg: #ffffff; 
+  --card-bg: #ffffff;
+  --primary: #3b82f6;
+  --primary-hover: #2563eb;
+  --success: #10b981;
+  --danger: #ef4444;
+  --warning: #f59e0b;
+  --shadow: 0 1px 3px 0 rgb(0 0 0 / 0.1), 0 1px 2px -1px rgb(0 0 0 / 0.1);
+  --shadow-lg: 0 10px 15px -3px rgb(0 0 0 / 0.1), 0 4px 6px -4px rgb(0 0 0 / 0.1);
+}
+body.dark { 
+  --bg: #0f172a; 
+  --text: #cbd5e1; 
+  --border: #334155; 
+  --input-bg: #1e293b; 
+  --card-bg: #1e293b;
+  --primary: #60a5fa;
+  --primary-hover: #3b82f6;
+  --success: #34d399;
+  --danger: #f87171;
+  --warning: #fbbf24;
+}
+* { box-sizing: border-box; }
 body { 
   background: var(--bg); 
   color: var(--text); 
-  font-family: sans-serif; 
-  transition: 0.3s; 
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; 
+  transition: all 0.3s ease;
+  margin: 0;
+  padding: 20px;
+  line-height: 1.6;
 }
-a { color: #007bff; text-decoration: none; }
-body.dark a { color: #66b3ff; }
-a:hover { text-decoration: underline; }
-input, button { 
+.container { max-width: 1200px; margin: 0 auto; }
+.card { 
+  background: var(--card-bg); 
+  border-radius: 12px; 
+  padding: 24px; 
+  margin: 16px 0; 
+  box-shadow: var(--shadow);
+  border: 1px solid var(--border);
+}
+h1, h2, h3 { margin-top: 0; font-weight: 600; }
+h1 { font-size: 2.5rem; color: var(--primary); }
+h2 { font-size: 2rem; margin-bottom: 1rem; }
+h3 { font-size: 1.5rem; margin-bottom: 0.75rem; }
+a { 
+  color: var(--primary); 
+  text-decoration: none; 
+  font-weight: 500;
+  transition: color 0.2s;
+}
+a:hover { color: var(--primary-hover); }
+input, button, textarea { 
   background: var(--input-bg); 
   color: var(--text); 
   border: 1px solid var(--border); 
-  padding: 4px; 
-  margin: 2px; 
-  border-radius: 3px;
+  padding: 12px 16px; 
+  margin: 4px; 
+  border-radius: 8px;
+  font-size: 14px;
+  transition: all 0.2s;
 }
-button { cursor: pointer; }
-button:hover { opacity: 0.8; }
-table { border-collapse: collapse; }
-table, th, td { border: 1px solid var(--border); }
-th, td { padding: 8px; }
+input:focus, textarea:focus { 
+  outline: none; 
+  border-color: var(--primary); 
+  box-shadow: 0 0 0 3px rgb(59 130 246 / 0.1);
+}
+button { 
+  cursor: pointer; 
+  font-weight: 500;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+button:hover { 
+  transform: translateY(-1px); 
+  box-shadow: var(--shadow-lg);
+}
+.btn-primary { 
+  background: var(--primary); 
+  color: white; 
+  border-color: var(--primary);
+}
+.btn-primary:hover { background: var(--primary-hover); }
+.btn-success { 
+  background: var(--success); 
+  color: white; 
+  border-color: var(--success);
+}
+.btn-danger { 
+  background: var(--danger); 
+  color: white; 
+  border-color: var(--danger);
+}
+.btn-small { 
+  padding: 6px 12px; 
+  font-size: 12px; 
+  border-radius: 6px;
+}
+table { 
+  width: 100%; 
+  border-collapse: collapse; 
+  margin: 16px 0;
+  background: var(--card-bg);
+  border-radius: 8px;
+  overflow: hidden;
+  box-shadow: var(--shadow);
+}
+th, td { 
+  padding: 12px 16px; 
+  text-align: left; 
+  border-bottom: 1px solid var(--border);
+}
+th { 
+  background: var(--primary); 
+  color: white; 
+  font-weight: 600;
+  font-size: 14px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+tr:hover { background: var(--bg); }
 .theme-toggle { 
-  position: absolute; 
-  top: 8px; 
-  right: 12px; 
+  position: fixed; 
+  top: 20px; 
+  right: 20px; 
   font-size: 14px; 
-  background: var(--input-bg);
+  background: var(--card-bg);
+  border: 1px solid var(--border);
+  border-radius: 50px;
+  padding: 8px 16px;
+  box-shadow: var(--shadow);
+  z-index: 1000;
+}
+.nav-links { 
+  display: flex; 
+  gap: 16px; 
+  margin: 16px 0;
+  flex-wrap: wrap;
+}
+.nav-links a { 
+  padding: 8px 16px; 
+  border-radius: 6px; 
+  background: var(--bg); 
+  border: 1px solid var(--border);
+  transition: all 0.2s;
+}
+.nav-links a:hover { 
+  background: var(--primary); 
+  color: white; 
+  transform: translateY(-1px);
+}
+.protocol-list { 
+  display: grid; 
+  gap: 16px; 
+  margin: 24px 0;
+}
+.protocol-item { 
+  background: var(--card-bg); 
+  border: 1px solid var(--border); 
+  border-radius: 8px; 
+  padding: 16px; 
+  display: flex; 
+  justify-content: space-between; 
+  align-items: center;
+  transition: all 0.2s;
+}
+.protocol-item:hover { 
+  transform: translateY(-2px); 
+  box-shadow: var(--shadow-lg);
+}
+.form-group { 
+  margin: 16px 0; 
+}
+.form-group label { 
+  display: block; 
+  margin-bottom: 8px; 
+  font-weight: 500;
+}
+.status-badge { 
+  padding: 4px 8px; 
+  border-radius: 20px; 
+  font-size: 12px; 
+  font-weight: 500;
+}
+.status-success { 
+  background: var(--success); 
+  color: white;
+}
+.status-danger { 
+  background: var(--danger); 
+  color: white;
+}
+.checkbox-cell { 
+  text-align: center; 
+}
+.checkbox-cell input[type="checkbox"] { 
+  transform: scale(1.2); 
+  margin: 0;
 }
 </style>
 <script>
 document.addEventListener('DOMContentLoaded', () => {
   const btn = document.createElement('button');
-  btn.innerText = "🌙 Toggle Theme";
+  btn.innerHTML = "🌙 <span>Dark Mode</span>";
   btn.className = "theme-toggle";
   btn.onclick = () => {
     document.body.classList.toggle('dark');
-    localStorage.setItem('darkmode', document.body.classList.contains('dark'));
+    const isDark = document.body.classList.contains('dark');
+    localStorage.setItem('darkmode', isDark);
+    btn.innerHTML = isDark ? "☀️ <span>Light Mode</span>" : "🌙 <span>Dark Mode</span>";
   };
   document.body.appendChild(btn);
   if (localStorage.getItem('darkmode') === 'true') {
     document.body.classList.add('dark');
+    btn.innerHTML = "☀️ <span>Light Mode</span>";
   }
 });
 </script>
@@ -333,61 +530,154 @@ document.addEventListener('DOMContentLoaded', () => {
 
 
 DASHBOARD_TEMPLATE = """
-<h2>Welcome, {{user}}</h2>
-<a href="/logout">Logout</a> | <a href="/2fa_setup">2FA Setup</a>
-<form method="POST" action="/create">
-  <input name="protocol_name" placeholder="New protocol name" required>
-  <button type="submit">Create</button>
-</form>
-<ul>
-{% for p in protocols %}
-  <li>
-    <a href="/protocol/{{p}}">{{p}}</a> — 
-    <a href="/protocol/{{p}}/history">History</a> — 
-    <a href="/protocol/{{p}}/calendar">Calendar</a>
-    <form method="POST" action="/delete_protocol/{{p}}" style="display:inline;" onsubmit="return confirm('Delete protocol {{p}}?')">
-      <button type="submit">🗑️</button>
+<div class="container">
+  <div class="card">
+    <h1>💊 Senolytic Tracker</h1>
+    <p>Welcome back, <strong>{{user}}</strong>!</p>
+    <div class="nav-links">
+      <a href="/logout">🚪 Logout</a>
+      <a href="/2fa_setup">🔒 2FA Setup</a>
+    </div>
+  </div>
+
+  <div class="card">
+    <h2>📋 Create New Protocol</h2>
+    <form method="POST" action="/create">
+      <div class="form-group">
+        <input name="protocol_name" placeholder="Enter protocol name..." required 
+               style="width: 300px;">
+        <button type="submit" class="btn-primary">✨ Create Protocol</button>
+      </div>
     </form>
-  </li>
-{% endfor %}
-</ul>
+  </div>
+
+  <div class="card">
+    <h2>🧪 Your Protocols</h2>
+    {% if protocols %}
+      <div class="protocol-list">
+        {% for p in protocols %}
+          <div class="protocol-item">
+            <div>
+              <h3 style="margin: 0 0 8px 0;">{{p}}</h3>
+              <div class="nav-links" style="margin: 0;">
+                <a href="/protocol/{{p}}">📝 Track</a>
+                <a href="/protocol/{{p}}/history">📊 History</a>
+                <a href="/protocol/{{p}}/calendar">📅 Calendar</a>
+              </div>
+            </div>
+            <form method="POST" action="/delete_protocol/{{p}}" 
+                  onsubmit="return confirm('Delete protocol {{p}}?')">
+              <button type="submit" class="btn-danger btn-small">🗑️ Delete</button>
+            </form>
+          </div>
+        {% endfor %}
+      </div>
+    {% else %}
+      <p style="text-align: center; color: #6b7280; margin: 40px 0;">
+        No protocols yet. Create your first one above! 🚀
+      </p>
+    {% endif %}
+  </div>
+</div>
 """
 
 TRACKER_TEMPLATE = """
-<h2>Protocol: {{name}}</h2>
-<a href="/">← Back</a>
-<form method="POST">
-  <p>Email for reminders: <input name="email" value="{{email}}"></p>
-  <p>📅 Today: {{today}}</p>
-  <table><tr><th>Compound</th><th>Taken?</th><th>Notes</th></tr>
-  {% for c in compounds %}
-    <tr>
-      <td>{{c}}</td>
-      <td><input type="checkbox" name="check_{{c}}" {% if log.get(c, {}).get('taken') %}checked{% endif %}></td>
-      <td><input name="note_{{c}}" value="{{log.get(c, {}).get('note','')}}"></td>
-    </tr>
-  {% endfor %}
-  </table><br>
-  <button type="submit">💾 Save</button>
-</form>
-<h3>🧪 Edit Compounds</h3>
-<form method="POST" action="/protocol/{{name}}/edit_compounds">
-  <textarea name="new_compounds" rows="2" cols="60">{{ compounds | join(', ') }}</textarea><br>
-  <button type="submit">💾 Update Compounds</button>
-</form>
-<a href="/protocol/{{name}}/reminder">📧 Simulate Reminder</a>
+<div class="container">
+  <div class="card">
+    <h1>📋 Protocol: {{name}}</h1>
+    <div class="nav-links">
+      <a href="/">← Dashboard</a>
+      <a href="/protocol/{{name}}/history">📊 History</a>
+      <a href="/protocol/{{name}}/calendar">📅 Calendar</a>
+      <a href="/protocol/{{name}}/reminder">📧 Send Reminder</a>
+    </div>
+  </div>
+
+  <div class="card">
+    <h2>📅 Today's Tracking - {{today}}</h2>
+    <form method="POST">
+      <div class="form-group">
+        <label>📧 Email for reminders</label>
+        <input name="email" value="{{email}}" type="email" 
+               placeholder="your@email.com" style="width: 300px;">
+      </div>
+      
+      <table>
+        <tr>
+          <th>💊 Compound</th>
+          <th>✅ Taken?</th>
+          <th>📝 Notes</th>
+        </tr>
+        {% for c in compounds %}
+          <tr>
+            <td><strong>{{c}}</strong></td>
+            <td class="checkbox-cell">
+              <input type="checkbox" name="check_{{c}}" 
+                     {% if log.get(c, {}).get('taken') %}checked{% endif %}>
+            </td>
+            <td>
+              <input name="note_{{c}}" value="{{log.get(c, {}).get('note','')}}" 
+                     placeholder="Add notes...">
+            </td>
+          </tr>
+        {% endfor %}
+      </table>
+      
+      <button type="submit" class="btn-success">💾 Save Today's Log</button>
+    </form>
+  </div>
+
+  <div class="card">
+    <h2>🧪 Edit Compounds</h2>
+    <form method="POST" action="/protocol/{{name}}/edit_compounds">
+      <div class="form-group">
+        <label>Compounds (comma-separated)</label>
+        <textarea name="new_compounds" rows="3" style="width: 100%;" 
+                  placeholder="FOXO4-DRI, Fisetin, Quercetin...">{{ compounds | join(', ') }}</textarea>
+      </div>
+      <button type="submit" class="btn-primary">🔄 Update Compounds</button>
+    </form>
+  </div>
+</div>
 """
 
 HIST_TEMPLATE = """
-<h2>📜 History for {{name}}</h2>
-<a href="/protocol/{{name}}">← Back</a>
-{% for d, entries in logs.items() %}
-  <h4>{{d}}</h4><ul>
-  {% for compound, e in entries.items() %}
-    <li>{{compound}}: {{'✅' if e.taken else '❌'}} - {{e.note}}</li>
+<div class="container">
+  <div class="card">
+    <h1>📊 History for {{name}}</h1>
+    <div class="nav-links">
+      <a href="/protocol/{{name}}">← Back to Tracking</a>
+      <a href="/protocol/{{name}}/calendar">📅 Calendar View</a>
+    </div>
+  </div>
+
+  {% for d, entries in logs.items() %}
+    <div class="card">
+      <h3>📅 {{d}}</h3>
+      <div style="display: grid; gap: 8px;">
+        {% for compound, e in entries.items() %}
+          <div style="display: flex; align-items: center; gap: 12px; padding: 8px; background: var(--bg); border-radius: 6px;">
+            <span class="status-badge {{ 'status-success' if e.taken else 'status-danger' }}">
+              {{ '✅ Taken' if e.taken else '❌ Missed' }}
+            </span>
+            <strong>{{compound}}</strong>
+            {% if e.note %}
+              <span style="color: var(--text); opacity: 0.7;">— {{e.note}}</span>
+            {% endif %}
+          </div>
+        {% endfor %}
+      </div>
+    </div>
   {% endfor %}
-  </ul>
-{% endfor %}
+
+  {% if not logs %}
+    <div class="card">
+      <p style="text-align: center; color: #6b7280; margin: 40px 0;">
+        No history yet. Start tracking to see your progress! 🚀
+      </p>
+    </div>
+  {% endif %}
+</div>
 """
 
 CAL_TEMPLATE = """
