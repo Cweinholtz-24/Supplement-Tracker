@@ -25,7 +25,7 @@ def init_db():
     """Initialize the database with required tables"""
     with sqlite3.connect(DB_PATH) as conn:
         cursor = conn.cursor()
-        
+
         # Users table
         cursor.execute('''
             CREATE TABLE IF NOT EXISTS users (
@@ -38,7 +38,7 @@ def init_db():
                 last_login TIMESTAMP
             )
         ''')
-        
+
         # Admins table
         cursor.execute('''
             CREATE TABLE IF NOT EXISTS admins (
@@ -52,7 +52,7 @@ def init_db():
                 last_login TIMESTAMP
             )
         ''')
-        
+
         # Protocols table
         cursor.execute('''
             CREATE TABLE IF NOT EXISTS protocols (
@@ -65,7 +65,7 @@ def init_db():
                 UNIQUE(user_id, name)
             )
         ''')
-        
+
         # Protocol logs table
         cursor.execute('''
             CREATE TABLE IF NOT EXISTS protocol_logs (
@@ -85,7 +85,7 @@ def init_db():
                 UNIQUE(protocol_id, log_date, compound)
             )
         ''')
-        
+
         # App configuration table
         cursor.execute('''
             CREATE TABLE IF NOT EXISTS app_config (
@@ -95,7 +95,7 @@ def init_db():
                 updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             )
         ''')
-        
+
         # Insert default config values
         cursor.execute('''
             INSERT OR IGNORE INTO app_config (key, value) 
@@ -105,7 +105,7 @@ def init_db():
             INSERT OR IGNORE INTO app_config (key, value) 
             VALUES ('max_protocols_per_user', '10')
         ''')
-        
+
         conn.commit()
 
 def get_db_connection():
@@ -118,23 +118,23 @@ def migrate_json_to_db():
     """Migrate existing JSON data to database"""
     if not USER_DIR.exists():
         return
-        
+
     migrated_users = []
-    
+
     with get_db_connection() as conn:
         cursor = conn.cursor()
-        
+
         # Migrate users
         for user_file in USER_DIR.glob("*.json"):
             username = user_file.stem
             try:
                 with open(user_file) as f:
                     user_data = json.load(f)
-                
+
                 # Check if user already exists in database
                 cursor.execute("SELECT id FROM users WHERE username = ?", (username,))
                 existing_user = cursor.fetchone()
-                
+
                 if existing_user:
                     print(f"User {username} already exists in database, updating...")
                     # Update existing user
@@ -153,18 +153,18 @@ def migrate_json_to_db():
                     ''', (username, user_data.get("password", ""), 
                           user_data.get("2fa_secret", ""), user_data.get("email", "")))
                     user_id = cursor.lastrowid
-                
+
                 # Migrate protocols
                 protocols = user_data.get("protocols", {})
                 for protocol_name, protocol_data in protocols.items():
                     compounds = json.dumps(protocol_data.get("compounds", []))
-                    
+
                     # Insert or update protocol
                     cursor.execute('''
                         INSERT OR REPLACE INTO protocols (user_id, name, compounds)
                         VALUES (?, ?, ?)
                     ''', (user_id, protocol_name, compounds))
-                    
+
                     # Get protocol ID
                     cursor.execute("SELECT id FROM protocols WHERE user_id = ? AND name = ?", 
                                  (user_id, protocol_name))
@@ -172,7 +172,7 @@ def migrate_json_to_db():
                     if not protocol_row:
                         continue
                     protocol_id = protocol_row[0]
-                    
+
                     # Migrate logs
                     logs = protocol_data.get("logs", {})
                     for log_date, entries in logs.items():
@@ -190,15 +190,15 @@ def migrate_json_to_db():
                                   entry_data.get("side_effects", ""),
                                   entry_data.get("weight", ""),
                                   entry_data.get("notes", "")))
-                
+
                 migrated_users.append(username)
                 print(f"✅ Successfully migrated user: {username}")
-                
+
             except Exception as e:
                 print(f"❌ Error migrating {username}: {e}")
-        
+
         conn.commit()
-        
+
         # Clean up JSON files after successful migration
         if migrated_users:
             print(f"\n🧹 Cleaning up {len(migrated_users)} JSON files...")
@@ -209,7 +209,7 @@ def migrate_json_to_db():
                         print(f"Deleted {user_file}")
                     except Exception as e:
                         print(f"Error deleting {user_file}: {e}")
-            
+
             print(f"✅ Migration complete! {len(migrated_users)} users moved to database.")
         else:
             print("No users found to migrate.")
@@ -269,7 +269,7 @@ def load_data(username=None):
         row = cursor.fetchone()
         if not row:
             return {"password": "", "2fa_secret": "", "protocols": {}, "email": ""}
-        
+
         # Get protocols
         cursor.execute('''
             SELECT name, compounds FROM protocols 
@@ -279,7 +279,7 @@ def load_data(username=None):
         for protocol_row in cursor.fetchall():
             protocol_name = protocol_row[0]
             compounds = json.loads(protocol_row[1])
-            
+
             # Get logs for this protocol
             cursor.execute('''
                 SELECT log_date, compound, taken, note, mood, energy, side_effects, weight, general_notes
@@ -287,7 +287,7 @@ def load_data(username=None):
                 JOIN protocols p ON pl.protocol_id = p.id
                 WHERE p.name = ? AND p.user_id = (SELECT id FROM users WHERE username = ?)
             ''', (protocol_name, username))
-            
+
             logs = {}
             for log_row in cursor.fetchall():
                 log_date = log_row[0]
@@ -302,12 +302,12 @@ def load_data(username=None):
                     "weight": log_row[7] or "",
                     "notes": log_row[8] or ""
                 }
-            
+
             protocols[protocol_name] = {
                 "compounds": compounds,
                 "logs": logs
             }
-        
+
         return {
             "password": row[0],
             "2fa_secret": row[1],
@@ -320,29 +320,29 @@ def save_data(data, username=None):
     username = username or current_user.id
     with get_db_connection() as conn:
         cursor = conn.cursor()
-        
+
         # Update user info
         cursor.execute('''
             UPDATE users SET email = ? WHERE username = ?
         ''', (data.get("email", ""), username))
-        
+
         # Get user ID
         cursor.execute("SELECT id FROM users WHERE username = ?", (username,))
         user_row = cursor.fetchone()
         if not user_row:
             return
         user_id = user_row[0]
-        
+
         # Handle protocols
         for protocol_name, protocol_data in data.get("protocols", {}).items():
             compounds = json.dumps(protocol_data.get("compounds", []))
-            
+
             # Insert or update protocol
             cursor.execute('''
                 INSERT OR REPLACE INTO protocols (user_id, name, compounds)
                 VALUES (?, ?, ?)
             ''', (user_id, protocol_name, compounds))
-            
+
             # Get protocol ID
             cursor.execute("SELECT id FROM protocols WHERE user_id = ? AND name = ?", 
                          (user_id, protocol_name))
@@ -350,7 +350,7 @@ def save_data(data, username=None):
             if not protocol_row:
                 continue
             protocol_id = protocol_row[0]
-            
+
             # Handle logs
             logs = protocol_data.get("logs", {})
             for log_date, entries in logs.items():
@@ -368,7 +368,7 @@ def save_data(data, username=None):
                           entry_data.get("side_effects", ""),
                           entry_data.get("weight", ""),
                           entry_data.get("notes", "")))
-        
+
         conn.commit()
 
 @app.route("/register", methods=["GET", "POST"])
@@ -376,19 +376,19 @@ def register():
     if request.method == "POST":
         username = request.form["username"].strip().lower()
         password = request.form["password"]
-        
+
         if not username or not password:
             flash("Username and password are required", "error")
             return render_template_string(THEME_HEADER + AUTH_TEMPLATE, title="Register", action="register")
-            
+
         if len(username) < 3:
             flash("Username must be at least 3 characters", "error")
             return render_template_string(THEME_HEADER + AUTH_TEMPLATE, title="Register", action="register")
-            
+
         if len(password) < 6:
             flash("Password must be at least 6 characters", "error")
             return render_template_string(THEME_HEADER + AUTH_TEMPLATE, title="Register", action="register")
-        
+
         with get_db_connection() as conn:
             cursor = conn.cursor()
             # Check for username conflicts in both users and admins tables
@@ -396,19 +396,19 @@ def register():
             if cursor.fetchone():
                 flash("Username already exists", "error")
                 return render_template_string(THEME_HEADER + AUTH_TEMPLATE, title="Register", action="register")
-            
+
             cursor.execute("SELECT id FROM admins WHERE username = ?", (username,))
             if cursor.fetchone():
                 flash("Username conflicts with admin account", "error")
                 return render_template_string(THEME_HEADER + AUTH_TEMPLATE, title="Register", action="register")
-            
+
             secret = pyotp.random_base32()
             cursor.execute('''
                 INSERT INTO users (username, password_hash, twofa_secret, email)
                 VALUES (?, ?, ?, ?)
             ''', (username, generate_password_hash(password), secret, ""))
             conn.commit()
-            
+
         session["pending_user"] = username
         flash("Account created successfully! Please set up 2FA.", "success")
         return redirect(url_for("twofa_setup"))
@@ -420,23 +420,23 @@ def admin_register():
         username = request.form["username"].strip().lower()
         password = request.form["password"]
         role = request.form.get("role", "Admin")
-        
+
         if not username or not password:
             flash("Username and password are required", "error")
             return render_template_string(THEME_HEADER + ADMIN_AUTH_TEMPLATE, title="Admin Register", action="admin/register")
-            
+
         if len(username) < 3:
             flash("Username must be at least 3 characters", "error")
             return render_template_string(THEME_HEADER + ADMIN_AUTH_TEMPLATE, title="Admin Register", action="admin/register")
-            
+
         if len(password) < 6:
             flash("Password must be at least 6 characters", "error")
             return render_template_string(THEME_HEADER + ADMIN_AUTH_TEMPLATE, title="Admin Register", action="admin/register")
-        
+
         if role not in ["Super Admin", "Admin", "Operator"]:
             flash("Invalid role selected", "error")
             return render_template_string(THEME_HEADER + ADMIN_AUTH_TEMPLATE, title="Admin Register", action="admin/register")
-        
+
         with get_db_connection() as conn:
             cursor = conn.cursor()
             # Check for username conflicts in both users and admins tables
@@ -444,19 +444,19 @@ def admin_register():
             if cursor.fetchone():
                 flash("Username conflicts with user account", "error")
                 return render_template_string(THEME_HEADER + ADMIN_AUTH_TEMPLATE, title="Admin Register", action="admin/register")
-            
+
             cursor.execute("SELECT id FROM admins WHERE username = ?", (username,))
             if cursor.fetchone():
                 flash("Admin already exists", "error")
                 return render_template_string(THEME_HEADER + ADMIN_AUTH_TEMPLATE, title="Admin Register", action="admin/register")
-            
+
             secret = pyotp.random_base32()
             cursor.execute('''
                 INSERT INTO admins (username, password_hash, twofa_secret, role, email)
                 VALUES (?, ?, ?, ?, ?)
             ''', (username, generate_password_hash(password), secret, role, ""))
             conn.commit()
-            
+
         session["pending_admin"] = username
         flash("Admin account created successfully! Please set up 2FA.", "success")
         return redirect(url_for("admin_twofa_setup"))
@@ -467,11 +467,11 @@ def login():
     if request.method == "POST":
         username = request.form["username"].strip().lower()
         password = request.form["password"]
-        
+
         if not username or not password:
             flash("Username and password are required", "error")
             return render_template_string(THEME_HEADER + AUTH_TEMPLATE, title="Login", action="login")
-        
+
         with get_db_connection() as conn:
             cursor = conn.cursor()
             cursor.execute("SELECT password_hash FROM users WHERE username = ?", (username,))
@@ -479,15 +479,15 @@ def login():
             if not row:
                 flash("User not found", "error")
                 return render_template_string(THEME_HEADER + AUTH_TEMPLATE, title="Login", action="login")
-            
+
             if not check_password_hash(row[0], password):
                 flash("Incorrect password", "error")
                 return render_template_string(THEME_HEADER + AUTH_TEMPLATE, title="Login", action="login")
-            
+
             # Update last login
             cursor.execute("UPDATE users SET last_login = CURRENT_TIMESTAMP WHERE username = ?", (username,))
             conn.commit()
-            
+
         session["pending_user"] = username
         return redirect(url_for("twofa_verify"))
     return render_template_string(THEME_HEADER + AUTH_TEMPLATE, title="Login", action="login")
@@ -497,11 +497,11 @@ def admin_login():
     if request.method == "POST":
         username = request.form["username"].strip().lower()
         password = request.form["password"]
-        
+
         if not username or not password:
             flash("Username and password are required", "error")
             return render_template_string(THEME_HEADER + ADMIN_AUTH_TEMPLATE, title="Admin Login", action="admin/login")
-        
+
         with get_db_connection() as conn:
             cursor = conn.cursor()
             cursor.execute("SELECT password_hash FROM admins WHERE username = ?", (username,))
@@ -509,15 +509,15 @@ def admin_login():
             if not row:
                 flash("Admin not found", "error")
                 return render_template_string(THEME_HEADER + ADMIN_AUTH_TEMPLATE, title="Admin Login", action="admin/login")
-            
+
             if not check_password_hash(row[0], password):
                 flash("Incorrect password", "error")
                 return render_template_string(THEME_HEADER + ADMIN_AUTH_TEMPLATE, title="Admin Login", action="admin/login")
-            
+
             # Update last login
             cursor.execute("UPDATE admins SET last_login = CURRENT_TIMESTAMP WHERE username = ?", (username,))
             conn.commit()
-            
+
         session["pending_admin"] = username
         return redirect(url_for("admin_twofa_verify"))
     return render_template_string(THEME_HEADER + ADMIN_AUTH_TEMPLATE, title="Admin Login", action="admin/login")
@@ -578,7 +578,7 @@ def load_admin_data(username):
         row = cursor.fetchone()
         if not row:
             return {"password": "", "2fa_secret": "", "email": "", "role": ""}
-        
+
         return {
             "password": row[0],
             "2fa_secret": row[1],
@@ -616,19 +616,19 @@ def twofa_setup():
     if not username:
         flash("Session expired. Please login again.", "error")
         return redirect(url_for("login"))
-    
+
     data = load_data(username)
     if not data.get("2fa_secret"):
         flash("2FA secret not found. Please try registering again.", "error")
         return redirect(url_for("register"))
-    
+
     try:
         # Create QR code
         uri = pyotp.TOTP(data["2fa_secret"]).provisioning_uri(
             name=username,
             issuer_name="SupplementTracker"
         )
-        
+
         # Generate QR code image
         qr = qrcode.QRCode(
             version=1,
@@ -638,23 +638,24 @@ def twofa_setup():
         )
         qr.add_data(uri)
         qr.make(fit=True)
-        
+
         img = qr.make_image(fill_color="black", back_color="white")
         buf = io.BytesIO()
         img.save(buf, format="PNG")
         buf.seek(0)
         encoded = base64.b64encode(buf.read()).decode()
-        
+        print(f"QR code generated successfully, encoded length: {len(encoded)}")
+
         setup_template = """
         <div class="container">
           <div class="card" style="max-width: 600px; margin: 40px auto; text-align: center;">
             <h2>🔐 Set Up Two-Factor Authentication</h2>
             <p style="margin-bottom: 24px;">Scan this QR code with Google Authenticator, Authy, or any compatible 2FA app:</p>
-            
+
             <div style="background: white; padding: 20px; border-radius: 12px; margin: 20px auto; display: inline-block; box-shadow: var(--shadow);">
               <img src='data:image/png;base64,{qr_code}' style="max-width: 256px; height: auto;">
             </div>
-            
+
             <div style="background: var(--bg); padding: 20px; border-radius: 12px; margin: 20px 0; border: 2px solid var(--border);">
               <h3 style="margin: 0 0 12px 0; color: var(--primary);">Manual Entry Code</h3>
               <p style="margin: 0 0 8px 0; font-size: 14px; opacity: 0.8;">If you can't scan the QR code, enter this code manually:</p>
@@ -666,7 +667,7 @@ def twofa_setup():
                 Issuer: SupplementTracker
               </p>
             </div>
-            
+
             <div style="margin: 32px 0;">
               <p style="font-size: 14px; margin-bottom: 16px;">After adding the account to your authenticator app, click below to verify:</p>
               <a href='/2fa' class="btn-primary" style="display: inline-block; padding: 16px 32px; text-decoration: none; border-radius: 8px; font-size: 16px;">Continue to Verify →</a>
@@ -674,12 +675,12 @@ def twofa_setup():
           </div>
         </div>
         """
-        
+
         return render_template_string(THEME_HEADER + setup_template, 
                                     qr_code=encoded, 
                                     secret=data['2fa_secret'],
                                     username=username)
-        
+
     except Exception as e:
         flash(f"Error generating 2FA setup: {str(e)}", "error")
         return redirect(url_for("register"))
@@ -690,19 +691,19 @@ def admin_twofa_setup():
     if not username:
         flash("Session expired. Please login again.", "error")
         return redirect(url_for("admin_login"))
-    
+
     data = load_admin_data(username)
     if not data.get("2fa_secret"):
         flash("2FA secret not found. Please try registering again.", "error")
         return redirect(url_for("admin_register"))
-    
+
     try:
         # Create QR code
         uri = pyotp.TOTP(data["2fa_secret"]).provisioning_uri(
             name=f"admin_{username}",
             issuer_name="SupplementTracker-Admin"
         )
-        
+
         # Generate QR code image
         qr = qrcode.QRCode(
             version=1,
@@ -712,23 +713,24 @@ def admin_twofa_setup():
         )
         qr.add_data(uri)
         qr.make(fit=True)
-        
+
         img = qr.make_image(fill_color="black", back_color="white")
         buf = io.BytesIO()
         img.save(buf, format="PNG")
         buf.seek(0)
         encoded = base64.b64encode(buf.read()).decode()
-        
+        print(f"Admin QR code generated successfully, encoded length: {len(encoded)}")
+
         setup_template = """
         <div class="container">
           <div class="card" style="max-width: 600px; margin: 40px auto; text-align: center;">
             <h2>👑 Set Up Admin Two-Factor Authentication</h2>
             <p style="margin-bottom: 24px;">Scan this QR code with Google Authenticator, Authy, or any compatible 2FA app:</p>
-            
+
             <div style="background: white; padding: 20px; border-radius: 12px; margin: 20px auto; display: inline-block; box-shadow: var(--shadow);">
               <img src='data:image/png;base64,{qr_code}' style="max-width: 256px; height: auto;">
             </div>
-            
+
             <div style="background: var(--bg); padding: 20px; border-radius: 12px; margin: 20px 0; border: 2px solid var(--border);">
               <h3 style="margin: 0 0 12px 0; color: var(--primary);">Manual Entry Code</h3>
               <p style="margin: 0 0 8px 0; font-size: 14px; opacity: 0.8;">If you can't scan the QR code, enter this code manually:</p>
@@ -740,7 +742,7 @@ def admin_twofa_setup():
                 Issuer: SupplementTracker-Admin
               </p>
             </div>
-            
+
             <div style="margin: 32px 0;">
               <p style="font-size: 14px; margin-bottom: 16px;">After adding the account to your authenticator app, click below to verify:</p>
               <a href='/admin/2fa' class="btn-primary" style="display: inline-block; padding: 16px 32px; text-decoration: none; border-radius: 8px; font-size: 16px;">Continue to Verify →</a>
@@ -748,12 +750,12 @@ def admin_twofa_setup():
           </div>
         </div>
         """
-        
+
         return render_template_string(THEME_HEADER + setup_template, 
                                     qr_code=encoded, 
                                     secret=data['2fa_secret'],
                                     username=username)
-        
+
     except Exception as e:
         flash(f"Error generating admin 2FA setup: {str(e)}", "error")
         return redirect(url_for("admin_register"))
@@ -776,29 +778,30 @@ def admin_logout():
 def admin_dashboard():
     with get_db_connection() as conn:
         cursor = conn.cursor()
-        
+
+```python
         # Get app configuration
         cursor.execute("SELECT key, value FROM app_config")
         config = {row[0]: row[1] for row in cursor.fetchall()}
-        
+
         # Get user count
         cursor.execute("SELECT COUNT(*) FROM users")
         user_count = cursor.fetchone()[0]
-        
+
         # Get admin count
         cursor.execute("SELECT COUNT(*) FROM admins")
         admin_count = cursor.fetchone()[0]
-        
+
         # Get recent activity (last 10 users)
         cursor.execute("SELECT username, last_login FROM users ORDER BY last_login DESC LIMIT 10")
         recent_users = cursor.fetchall()
-        
+
         # Get all admins (for super admin)
         admins = []
         if current_user.role == "Super Admin":
             cursor.execute("SELECT username, role, email, last_login FROM admins ORDER BY username")
             admins = cursor.fetchall()
-    
+
     return render_template_string(THEME_HEADER + ADMIN_DASHBOARD_TEMPLATE, 
                                 config=config, 
                                 user_count=user_count,
@@ -814,10 +817,10 @@ def update_config():
     if current_user.role not in ["Super Admin", "Admin"]:
         flash("Insufficient permissions to modify configuration", "error")
         return redirect(url_for("admin_dashboard"))
-    
+
     with get_db_connection() as conn:
         cursor = conn.cursor()
-        
+
         # Update configuration values
         for key in ["app_name", "max_protocols_per_user"]:
             value = request.form.get(key)
@@ -826,7 +829,7 @@ def update_config():
                     INSERT OR REPLACE INTO app_config (key, value, updated_at)
                     VALUES (?, ?, CURRENT_TIMESTAMP)
                 ''', (key, value))
-        
+
         # Handle boolean configs
         for key in ["email_reminders_enabled", "registration_enabled", "data_export_enabled", "analytics_enabled"]:
             value = "true" if request.form.get(key) == "on" else "false"
@@ -834,9 +837,9 @@ def update_config():
                 INSERT OR REPLACE INTO app_config (key, value, updated_at)
                 VALUES (?, ?, CURRENT_TIMESTAMP)
             ''', (key, value))
-        
+
         conn.commit()
-    
+
     flash("Configuration updated successfully!", "success")
     return redirect(url_for("admin_dashboard"))
 
@@ -847,12 +850,12 @@ def delete_admin(username):
     if username == current_user.username:
         flash("Cannot delete your own admin account", "error")
         return redirect(url_for("admin_dashboard"))
-    
+
     with get_db_connection() as conn:
         cursor = conn.cursor()
         cursor.execute("DELETE FROM admins WHERE username = ?", (username,))
         conn.commit()
-    
+
     flash(f"Admin '{username}' deleted successfully", "success")
     return redirect(url_for("admin_dashboard"))
 
@@ -1253,7 +1256,7 @@ ADMIN_DASHBOARD_TEMPLATE = """
     <div class="nav-links" style="margin-bottom: 24px;">
       <a href="/admin/register" class="btn-primary">➕ Add New Admin</a>
     </div>
-    
+
     {% if admins %}
       <table>
         <thead>
@@ -1802,11 +1805,11 @@ CAL_TEMPLATE = """
       <a href="/protocol/{{name}}/analytics">📈 Analytics</a>
     </div>
   </div>
-  
+
   <div class="card">
     <div id="calendar" style="min-height: 600px;"></div>
   </div>
-  
+
   <div class="card" id="logDetails" style="display: none;">
     <h3>📋 Day Details</h3>
     <div id="logContent"></div>
