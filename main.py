@@ -727,6 +727,37 @@ def update_config():
     flash("Configuration updated successfully!", "success")
     return redirect(url_for("admin_dashboard"))
 
+@app.route("/admin/test_email", methods=["POST"])
+@login_required
+@admin_required
+def test_email():
+    test_email_address = request.form.get("test_email")
+    
+    if not test_email_address:
+        flash("Please enter a test email address", "error")
+        return redirect(url_for("admin_dashboard"))
+    
+    # Send test email
+    subject = "SendGrid Test Email - Supplement Tracker"
+    body = """This is a test email from your Supplement Tracker application.
+
+If you received this email, your SendGrid configuration is working correctly!
+
+Test details:
+- Sent from: Admin Dashboard
+- Time: """ + datetime.now().strftime("%Y-%m-%d %H:%M:%S") + """
+- Configuration: SendGrid API
+
+Best regards,
+Supplement Tracker Admin Team"""
+
+    if send_email(test_email_address, subject, body):
+        flash(f"Test email sent successfully to {test_email_address}!", "success")
+    else:
+        flash("Failed to send test email. Please check your SendGrid configuration.", "error")
+    
+    return redirect(url_for("admin_dashboard"))
+
 @app.route("/admin/delete_admin/<username>", methods=["POST"])
 @login_required
 @super_admin_required
@@ -1215,6 +1246,21 @@ ADMIN_DASHBOARD_TEMPLATE = """
       </div>
       <button type="submit" class="btn-primary">📧 Save SendGrid Configuration</button>
     </form>
+    
+    <div style="margin-top: 24px; padding: 16px; background: var(--bg); border-radius: 8px; border: 1px solid var(--border);">
+      <h4 style="margin: 0 0 16px 0; color: var(--primary);">🧪 Test Email Configuration</h4>
+      <form method="POST" action="/admin/test_email" style="display: flex; gap: 12px; align-items: end;">
+        <div style="flex: 1;">
+          <label style="display: block; margin-bottom: 8px; font-weight: 500;">Test Email Address</label>
+          <input name="test_email" type="email" placeholder="test@example.com" required 
+                 style="width: 100%; margin: 0;">
+        </div>
+        <button type="submit" class="btn-success" style="margin: 0;">🚀 Send Test Email</button>
+      </form>
+      <small style="color: var(--text); opacity: 0.7; margin-top: 8px; display: block;">
+        This will send a test email to verify your SendGrid configuration is working.
+      </small>
+    </div>
   </div>
   {% endif %}
 
