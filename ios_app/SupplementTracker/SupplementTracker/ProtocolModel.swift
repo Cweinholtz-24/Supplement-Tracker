@@ -33,15 +33,15 @@ struct ProtocolModel: Identifiable, Codable {
     
     // Computed properties for safe access with defaults
     var displayFrequency: String {
-        return frequency ?? "Daily"
+        frequency ?? "Daily"
     }
     
     var displayDescription: String {
-        return description ?? ""
+        description ?? ""
     }
     
     var displayIsActive: Bool {
-        return isActive ?? true
+        isActive ?? true
     }
 }
 
@@ -106,4 +106,26 @@ struct ExportData: Codable {
     let profile: UserProfile
     let exportDate: String
     let version: String
+}
+
+struct AnalyticsModel: Codable {
+    let totalDays: Int
+    let adherence: Double
+    let streak: Int
+    let missedDays: Int
+    let compoundStats: [String: CompoundStats]
+}
+
+struct CompoundStats: Codable {
+    let taken: Int
+    let missed: Int
+    let percentage: Double
+}
+
+struct NotificationModel: Identifiable, Codable {
+    let id: String
+    let title: String
+    let message: String
+    let isRead: Bool
+    let createdAt: String
 }

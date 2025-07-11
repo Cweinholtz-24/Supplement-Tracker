@@ -84,7 +84,7 @@ struct LoginView: View {
                             .keyboardType(.numberPad)
                             .multilineTextAlignment(.center)
                             .font(.title2)
-                            .onChange(of: twoFACode) {
+                            .onChange(of: twoFACode) { _ in
                                 handleTwoFACodeChange()
                             }
 

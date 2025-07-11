@@ -194,16 +194,16 @@ struct CreateProtocolView: View {
 
                 Section(header: Text("Compounds")) {
                     ForEach(compounds.indices, id: \.self) { compoundIndex in
-                        HStack {
-                            TextField("Compound name", text: $compounds[compoundIndex])
-                            if compounds.count > 1 {
-                                Button(action: { removeCompound(at: compoundIndex) }) {
-                                    Image(systemName: "minus.circle.fill")
-                                        .foregroundColor(.red)
+                                HStack {
+                                    TextField("Compound name", text: $compounds[compoundIndex])
+                                    if compounds.count > 1 {
+                                        Button(action: { removeCompound(at: compoundIndex) }) {
+                                            Image(systemName: "minus.circle.fill")
+                                                .foregroundColor(.red)
+                                        }
+                                    }
                                 }
                             }
-                        }
-                    }
 
                     Button(action: addCompound) {
                         HStack {
@@ -593,8 +593,8 @@ struct ProtocolRowView: View {
                 .font(.caption)
                 .foregroundColor(.secondary)
 
-            if !protocolItem.description.isEmpty {
-                Text(protocolItem.description)
+            if !protocolItem.displayDescription.isEmpty {
+                Text(protocolItem.displayDescription)
                     .font(.caption)
                     .foregroundColor(.secondary)
                     .lineLimit(2)
