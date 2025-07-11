@@ -960,7 +960,8 @@ def system_monitoring():
         
         # Get database size
         cursor.execute("SELECT page_count * page_size as size FROM pragma_page_count(), pragma_page_size()")
-        db_size = cursor.fetchone()[0] if cursor.fetchone() else 0
+        db_size_row = cursor.fetchone()
+        db_size = db_size_row[0] if db_size_row else 0
         
         # Get active sessions (simplified)
         cursor.execute("SELECT COUNT(*) FROM users WHERE last_login > datetime('now', '-1 hour')")
