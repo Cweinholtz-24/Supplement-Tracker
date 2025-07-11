@@ -1,5 +1,5 @@
-import os, json, io, base64
-from flask import Flask, render_template_string, request, redirect, url_for, session, jsonify, Response
+import os, json, io, base64, sqlite3
+from flask import Flask, render_template_string, request, redirect, url_for, session, jsonify, Response, flash
 from flask_login import LoginManager, login_user, logout_user, login_required, UserMixin, current_user
 from werkzeug.security import generate_password_hash, check_password_hash
 from datetime import date, datetime
@@ -18,39 +18,306 @@ DATA_DIR = Path("data")
 USER_DIR = DATA_DIR / "users"
 USER_DIR.mkdir(parents=True, exist_ok=True)
 
+# Database setup
+DB_PATH = DATA_DIR / "senolytic_tracker.db"
+
+def init_db():
+    """Initialize the database with required tables"""
+    with sqlite3.connect(DB_PATH) as conn:
+        cursor = conn.cursor()
+        
+        # Users table
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS users (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                username TEXT UNIQUE NOT NULL,
+                password_hash TEXT NOT NULL,
+                twofa_secret TEXT NOT NULL,
+                email TEXT DEFAULT '',
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                last_login TIMESTAMP
+            )
+        ''')
+        
+        # Admins table
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS admins (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                username TEXT UNIQUE NOT NULL,
+                password_hash TEXT NOT NULL,
+                twofa_secret TEXT NOT NULL,
+                role TEXT DEFAULT 'Admin',
+                email TEXT DEFAULT '',
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                last_login TIMESTAMP
+            )
+        ''')
+        
+        # Protocols table
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS protocols (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                user_id INTEGER NOT NULL,
+                name TEXT NOT NULL,
+                compounds TEXT NOT NULL,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (user_id) REFERENCES users (id),
+                UNIQUE(user_id, name)
+            )
+        ''')
+        
+        # Protocol logs table
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS protocol_logs (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                protocol_id INTEGER NOT NULL,
+                log_date DATE NOT NULL,
+                compound TEXT NOT NULL,
+                taken BOOLEAN DEFAULT FALSE,
+                note TEXT DEFAULT '',
+                mood TEXT DEFAULT '',
+                energy TEXT DEFAULT '',
+                side_effects TEXT DEFAULT '',
+                weight TEXT DEFAULT '',
+                general_notes TEXT DEFAULT '',
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (protocol_id) REFERENCES protocols (id),
+                UNIQUE(protocol_id, log_date, compound)
+            )
+        ''')
+        
+        # App configuration table
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS app_config (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                key TEXT UNIQUE NOT NULL,
+                value TEXT NOT NULL,
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        ''')
+        
+        # Insert default config values
+        cursor.execute('''
+            INSERT OR IGNORE INTO app_config (key, value) 
+            VALUES ('app_name', 'Senolytic Tracker')
+        ''')
+        cursor.execute('''
+            INSERT OR IGNORE INTO app_config (key, value) 
+            VALUES ('max_protocols_per_user', '10')
+        ''')
+        
+        conn.commit()
+
+def get_db_connection():
+    """Get database connection"""
+    conn = sqlite3.connect(DB_PATH)
+    conn.row_factory = sqlite3.Row
+    return conn
+
+def migrate_json_to_db():
+    """Migrate existing JSON data to database"""
+    if not USER_DIR.exists():
+        return
+        
+    with get_db_connection() as conn:
+        cursor = conn.cursor()
+        
+        # Migrate users
+        for user_file in USER_DIR.glob("*.json"):
+            username = user_file.stem
+            try:
+                with open(user_file) as f:
+                    user_data = json.load(f)
+                
+                cursor.execute('''
+                    INSERT OR IGNORE INTO users (username, password_hash, twofa_secret, email)
+                    VALUES (?, ?, ?, ?)
+                ''', (username, user_data.get("password", ""), 
+                      user_data.get("2fa_secret", ""), user_data.get("email", "")))
+                
+                # Get user ID
+                cursor.execute("SELECT id FROM users WHERE username = ?", (username,))
+                user_row = cursor.fetchone()
+                if not user_row:
+                    continue
+                user_id = user_row[0]
+                
+                # Migrate protocols
+                protocols = user_data.get("protocols", {})
+                for protocol_name, protocol_data in protocols.items():
+                    compounds = json.dumps(protocol_data.get("compounds", []))
+                    cursor.execute('''
+                        INSERT OR IGNORE INTO protocols (user_id, name, compounds)
+                        VALUES (?, ?, ?)
+                    ''', (user_id, protocol_name, compounds))
+                    
+                    # Get protocol ID
+                    cursor.execute("SELECT id FROM protocols WHERE user_id = ? AND name = ?", 
+                                 (user_id, protocol_name))
+                    protocol_row = cursor.fetchone()
+                    if not protocol_row:
+                        continue
+                    protocol_id = protocol_row[0]
+                    
+                    # Migrate logs
+                    logs = protocol_data.get("logs", {})
+                    for log_date, entries in logs.items():
+                        for compound, entry_data in entries.items():
+                            cursor.execute('''
+                                INSERT OR IGNORE INTO protocol_logs 
+                                (protocol_id, log_date, compound, taken, note, mood, energy, 
+                                 side_effects, weight, general_notes)
+                                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                            ''', (protocol_id, log_date, compound, 
+                                  entry_data.get("taken", False),
+                                  entry_data.get("note", ""),
+                                  entry_data.get("mood", ""),
+                                  entry_data.get("energy", ""),
+                                  entry_data.get("side_effects", ""),
+                                  entry_data.get("weight", ""),
+                                  entry_data.get("notes", "")))
+                
+            except Exception as e:
+                print(f"Error migrating {username}: {e}")
+        
+        conn.commit()
+
+# Initialize database on startup
+init_db()
+migrate_json_to_db()
+
 class User(UserMixin):
-    def __init__(self, username):
+    def __init__(self, username, user_id=None):
         self.id = username
+        self.user_id = user_id
 
     @staticmethod
     def get(username):
-        path = USER_DIR / f"{username}.json"
-        if path.exists():
-            return User(username)
+        with get_db_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute("SELECT id FROM users WHERE username = ?", (username,))
+            row = cursor.fetchone()
+            if row:
+                return User(username, row[0])
         return None
 
 @login_manager.user_loader
 def load_user(user_id):
     return User.get(user_id)
 
-def user_file(username=None):
-    u = username or current_user.id
-    return USER_DIR / f"{u}.json"
-
 def load_data(username=None):
-    try:
-        with open(user_file(username)) as f:
-            return json.load(f)
-    except (FileNotFoundError, json.JSONDecodeError):
-        return {"password": "", "2fa_secret": "", "protocols": {}, "email": ""}
+    """Load user data from database"""
+    username = username or current_user.id
+    with get_db_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute('''
+            SELECT password_hash, twofa_secret, email 
+            FROM users WHERE username = ?
+        ''', (username,))
+        row = cursor.fetchone()
+        if not row:
+            return {"password": "", "2fa_secret": "", "protocols": {}, "email": ""}
+        
+        # Get protocols
+        cursor.execute('''
+            SELECT name, compounds FROM protocols 
+            WHERE user_id = (SELECT id FROM users WHERE username = ?)
+        ''', (username,))
+        protocols = {}
+        for protocol_row in cursor.fetchall():
+            protocol_name = protocol_row[0]
+            compounds = json.loads(protocol_row[1])
+            
+            # Get logs for this protocol
+            cursor.execute('''
+                SELECT log_date, compound, taken, note, mood, energy, side_effects, weight, general_notes
+                FROM protocol_logs pl
+                JOIN protocols p ON pl.protocol_id = p.id
+                WHERE p.name = ? AND p.user_id = (SELECT id FROM users WHERE username = ?)
+            ''', (protocol_name, username))
+            
+            logs = {}
+            for log_row in cursor.fetchall():
+                log_date = log_row[0]
+                if log_date not in logs:
+                    logs[log_date] = {}
+                logs[log_date][log_row[1]] = {
+                    "taken": bool(log_row[2]),
+                    "note": log_row[3] or "",
+                    "mood": log_row[4] or "",
+                    "energy": log_row[5] or "",
+                    "side_effects": log_row[6] or "",
+                    "weight": log_row[7] or "",
+                    "notes": log_row[8] or ""
+                }
+            
+            protocols[protocol_name] = {
+                "compounds": compounds,
+                "logs": logs
+            }
+        
+        return {
+            "password": row[0],
+            "2fa_secret": row[1],
+            "email": row[2] or "",
+            "protocols": protocols
+        }
 
 def save_data(data, username=None):
-    try:
-        with open(user_file(username), "w") as f:
-            json.dump(data, f, indent=2)
-    except Exception as e:
-        print(f"Error saving data: {e}")
-        raise
+    """Save user data to database"""
+    username = username or current_user.id
+    with get_db_connection() as conn:
+        cursor = conn.cursor()
+        
+        # Update user info
+        cursor.execute('''
+            UPDATE users SET email = ? WHERE username = ?
+        ''', (data.get("email", ""), username))
+        
+        # Get user ID
+        cursor.execute("SELECT id FROM users WHERE username = ?", (username,))
+        user_row = cursor.fetchone()
+        if not user_row:
+            return
+        user_id = user_row[0]
+        
+        # Handle protocols
+        for protocol_name, protocol_data in data.get("protocols", {}).items():
+            compounds = json.dumps(protocol_data.get("compounds", []))
+            
+            # Insert or update protocol
+            cursor.execute('''
+                INSERT OR REPLACE INTO protocols (user_id, name, compounds)
+                VALUES (?, ?, ?)
+            ''', (user_id, protocol_name, compounds))
+            
+            # Get protocol ID
+            cursor.execute("SELECT id FROM protocols WHERE user_id = ? AND name = ?", 
+                         (user_id, protocol_name))
+            protocol_row = cursor.fetchone()
+            if not protocol_row:
+                continue
+            protocol_id = protocol_row[0]
+            
+            # Handle logs
+            logs = protocol_data.get("logs", {})
+            for log_date, entries in logs.items():
+                for compound, entry_data in entries.items():
+                    cursor.execute('''
+                        INSERT OR REPLACE INTO protocol_logs 
+                        (protocol_id, log_date, compound, taken, note, mood, energy, 
+                         side_effects, weight, general_notes)
+                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    ''', (protocol_id, log_date, compound,
+                          entry_data.get("taken", False),
+                          entry_data.get("note", ""),
+                          entry_data.get("mood", ""),
+                          entry_data.get("energy", ""),
+                          entry_data.get("side_effects", ""),
+                          entry_data.get("weight", ""),
+                          entry_data.get("notes", "")))
+        
+        conn.commit()
 
 @app.route("/register", methods=["GET", "POST"])
 def register():
@@ -69,20 +336,21 @@ def register():
         if len(password) < 6:
             flash("Password must be at least 6 characters", "error")
             return render_template_string(THEME_HEADER + AUTH_TEMPLATE, title="Register", action="register")
+        
+        with get_db_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute("SELECT id FROM users WHERE username = ?", (username,))
+            if cursor.fetchone():
+                flash("User already exists", "error")
+                return render_template_string(THEME_HEADER + AUTH_TEMPLATE, title="Register", action="register")
             
-        path = user_file(username)
-        if path.exists(): 
-            flash("User already exists", "error")
-            return render_template_string(THEME_HEADER + AUTH_TEMPLATE, title="Register", action="register")
+            secret = pyotp.random_base32()
+            cursor.execute('''
+                INSERT INTO users (username, password_hash, twofa_secret, email)
+                VALUES (?, ?, ?, ?)
+            ''', (username, generate_password_hash(password), secret, ""))
+            conn.commit()
             
-        secret = pyotp.random_base32()
-        with open(path, "w") as f:
-            json.dump({
-                "password": generate_password_hash(password),
-                "2fa_secret": secret,
-                "protocols": {},
-                "email": ""
-            }, f)
         session["pending_user"] = username
         flash("Account created successfully! Please set up 2FA.", "success")
         return redirect(url_for("twofa_setup"))
@@ -97,16 +365,22 @@ def login():
         if not username or not password:
             flash("Username and password are required", "error")
             return render_template_string(THEME_HEADER + AUTH_TEMPLATE, title="Login", action="login")
+        
+        with get_db_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute("SELECT password_hash FROM users WHERE username = ?", (username,))
+            row = cursor.fetchone()
+            if not row:
+                flash("User not found", "error")
+                return render_template_string(THEME_HEADER + AUTH_TEMPLATE, title="Login", action="login")
             
-        path = user_file(username)
-        if not path.exists(): 
-            flash("User not found", "error")
-            return render_template_string(THEME_HEADER + AUTH_TEMPLATE, title="Login", action="login")
+            if not check_password_hash(row[0], password):
+                flash("Incorrect password", "error")
+                return render_template_string(THEME_HEADER + AUTH_TEMPLATE, title="Login", action="login")
             
-        data = load_data(username)
-        if not check_password_hash(data["password"], password): 
-            flash("Incorrect password", "error")
-            return render_template_string(THEME_HEADER + AUTH_TEMPLATE, title="Login", action="login")
+            # Update last login
+            cursor.execute("UPDATE users SET last_login = CURRENT_TIMESTAMP WHERE username = ?", (username,))
+            conn.commit()
             
         session["pending_user"] = username
         return redirect(url_for("twofa_verify"))
