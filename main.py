@@ -2033,31 +2033,47 @@ THEME_HEADER = """
 <style>
 :root { 
   --bg: #f8fafc; 
-  --text: #334155; 
+  --text: #1e293b; 
+  --text-secondary: #64748b;
+  --text-muted: #94a3b8;
   --border: #e2e8f0; 
   --input-bg: #ffffff; 
   --card-bg: #ffffff;
   --primary: #3b82f6;
   --primary-hover: #2563eb;
-  --success: #10b981;
-  --danger: #ef4444;
-  --warning: #f59e0b;
-  --info: #06b6d4;
+  --success: #059669;
+  --danger: #dc2626;
+  --warning: #d97706;
+  --info: #0891b2;
   --shadow: 0 1px 3px 0 rgb(0 0 0 / 0.1), 0 1px 2px -1px rgb(0 0 0 / 0.1);
   --shadow-lg: 0 10px 15px -3px rgb(0 0 0 / 0.1), 0 4px 6px -4px rgb(0 0 0 / 0.1);
+  --calendar-text: #1e293b;
+  --calendar-bg: #ffffff;
+  --calendar-hover: #f1f5f9;
+  --calendar-border: #e2e8f0;
+  --calendar-today: #3b82f6;
+  --calendar-event: #0891b2;
 }
 body.dark { 
   --bg: #0f172a; 
-  --text: #cbd5e1; 
+  --text: #f1f5f9; 
+  --text-secondary: #cbd5e1;
+  --text-muted: #94a3b8;
   --border: #334155; 
   --input-bg: #1e293b; 
   --card-bg: #1e293b;
   --primary: #60a5fa;
   --primary-hover: #3b82f6;
-  --success: #34d399;
+  --success: #10b981;
   --danger: #f87171;
   --warning: #fbbf24;
   --info: #22d3ee;
+  --calendar-text: #f1f5f9;
+  --calendar-bg: #1e293b;
+  --calendar-hover: #334155;
+  --calendar-border: #475569;
+  --calendar-today: #60a5fa;
+  --calendar-event: #22d3ee;
 }
 * { box-sizing: border-box; }
 body { 
@@ -2350,6 +2366,167 @@ tr:hover { background: var(--bg); }
   from { transform: translateX(100%); opacity: 0; }
   to { transform: translateX(0); opacity: 1; }
 }
+
+/* Calendar-specific styling for better visibility */
+.fc {
+  color: var(--calendar-text) !important;
+  background: var(--calendar-bg) !important;
+}
+
+.fc-theme-standard .fc-scrollgrid {
+  border: 1px solid var(--calendar-border) !important;
+}
+
+.fc-theme-standard td, .fc-theme-standard th {
+  border: 1px solid var(--calendar-border) !important;
+}
+
+.fc-daygrid-day {
+  background: var(--calendar-bg) !important;
+  color: var(--calendar-text) !important;
+}
+
+.fc-daygrid-day:hover {
+  background: var(--calendar-hover) !important;
+}
+
+.fc-daygrid-day-number {
+  color: var(--calendar-text) !important;
+  font-weight: 500 !important;
+  padding: 4px 8px !important;
+}
+
+.fc-day-today {
+  background: rgba(59, 130, 246, 0.1) !important;
+}
+
+.fc-day-today .fc-daygrid-day-number {
+  color: var(--calendar-today) !important;
+  font-weight: 700 !important;
+}
+
+.fc-toolbar {
+  color: var(--text) !important;
+}
+
+.fc-toolbar-title {
+  color: var(--text) !important;
+  font-weight: 600 !important;
+}
+
+.fc-button {
+  background: var(--primary) !important;
+  border-color: var(--primary) !important;
+  color: white !important;
+}
+
+.fc-button:hover {
+  background: var(--primary-hover) !important;
+  border-color: var(--primary-hover) !important;
+}
+
+.fc-button:disabled {
+  background: var(--text-muted) !important;
+  border-color: var(--text-muted) !important;
+}
+
+.fc-event {
+  background: var(--calendar-event) !important;
+  border-color: var(--calendar-event) !important;
+  color: white !important;
+  font-weight: 500 !important;
+}
+
+.fc-event:hover {
+  opacity: 0.9 !important;
+}
+
+.fc-col-header-cell {
+  background: var(--bg) !important;
+  color: var(--text) !important;
+  font-weight: 600 !important;
+}
+
+.fc-scrollgrid-sync-inner {
+  color: var(--text) !important;
+}
+
+/* Improve general text contrast */
+p, span, div {
+  color: var(--text);
+}
+
+.text-secondary {
+  color: var(--text-secondary) !important;
+}
+
+.text-muted {
+  color: var(--text-muted) !important;
+}
+
+/* Improve table readability */
+table {
+  color: var(--text);
+}
+
+th {
+  color: white !important;
+}
+
+td {
+  color: var(--text) !important;
+}
+
+/* Improve form element contrast */
+input, textarea, select {
+  color: var(--text) !important;
+  background: var(--input-bg) !important;
+  border: 1px solid var(--border) !important;
+}
+
+input::placeholder, textarea::placeholder {
+  color: var(--text-muted) !important;
+}
+
+/* Improve card readability */
+.card {
+  color: var(--text) !important;
+}
+
+.card h1, .card h2, .card h3, .card h4, .card h5, .card h6 {
+  color: var(--text) !important;
+}
+
+/* Improve protocol item readability */
+.protocol-item {
+  color: var(--text) !important;
+}
+
+.protocol-item h3 {
+  color: var(--text) !important;
+}
+
+/* Improve status badges for better contrast */
+.status-badge {
+  font-weight: 600 !important;
+  text-shadow: 0 1px 2px rgba(0,0,0,0.1) !important;
+}
+
+/* Improve navigation links */
+.nav-links a {
+  color: var(--text) !important;
+  background: var(--bg) !important;
+}
+
+.nav-links a:hover {
+  color: white !important;
+  background: var(--primary) !important;
+}
+
+/* Improve flash messages readability */
+.flash-message {
+  text-shadow: 0 1px 2px rgba(0,0,0,0.1) !important;
+}
 </style>
 <div class="flash-messages" id="flashMessages">
   {% with messages = get_flashed_messages(with_categories=true) %}
@@ -2579,9 +2756,9 @@ document.addEventListener('DOMContentLoaded', function() {
   if (typeof FullCalendar === 'undefined') {
     console.error('FullCalendar library failed to load');
     document.getElementById('calendar').innerHTML = 
-      '<div style="text-align: center; padding: 40px; color: var(--danger);">' +
-      '<h3>❌ Calendar Library Error</h3>' +
-      '<p>Unable to load calendar library. Please refresh the page or check your internet connection.</p>' +
+      '<div style="text-align: center; padding: 40px; color: var(--danger); background: var(--card-bg); border-radius: 8px; border: 1px solid var(--border);">' +
+      '<h3 style="color: var(--danger); margin-bottom: 16px;">❌ Calendar Library Error</h3>' +
+      '<p style="color: var(--text); margin-bottom: 16px;">Unable to load calendar library. Please refresh the page or check your internet connection.</p>' +
       '<button onclick="location.reload()" class="btn-primary" style="margin-top: 16px;">🔄 Refresh Page</button>' +
       '</div>';
     return;
@@ -2616,9 +2793,9 @@ document.addEventListener('DOMContentLoaded', function() {
             console.error('Error loading calendar events:', error);
             failureCallback(error);
             document.getElementById('calendar').innerHTML = 
-              '<div style="text-align: center; padding: 40px; color: var(--warning);">' +
-              '<h3>⚠️ Data Loading Error</h3>' +
-              '<p>Unable to load calendar data. Please try refreshing the page.</p>' +
+              '<div style="text-align: center; padding: 40px; background: var(--card-bg); border-radius: 8px; border: 1px solid var(--border);">' +
+              '<h3 style="color: var(--warning); margin-bottom: 16px;">⚠️ Data Loading Error</h3>' +
+              '<p style="color: var(--text); margin-bottom: 16px;">Unable to load calendar data. Please try refreshing the page.</p>' +
               '<button onclick="location.reload()" class="btn-primary" style="margin-top: 16px;">🔄 Refresh Page</button>' +
               '</div>';
           });
@@ -2666,9 +2843,9 @@ document.addEventListener('DOMContentLoaded', function() {
   } catch (error) {
     console.error('Calendar initialization error:', error);
     document.getElementById('calendar').innerHTML = 
-      '<div style="text-align: center; padding: 40px; color: var(--danger);">' +
-      '<h3>❌ Calendar Error</h3>' +
-      '<p>Unable to initialize calendar: ' + error.message + '</p>' +
+      '<div style="text-align: center; padding: 40px; background: var(--card-bg); border-radius: 8px; border: 1px solid var(--border);">' +
+      '<h3 style="color: var(--danger); margin-bottom: 16px;">❌ Calendar Error</h3>' +
+      '<p style="color: var(--text); margin-bottom: 16px;">Unable to initialize calendar: ' + error.message + '</p>' +
       '<button onclick="location.reload()" class="btn-primary" style="margin-top: 16px;">🔄 Refresh Page</button>' +
       '</div>';
   }
