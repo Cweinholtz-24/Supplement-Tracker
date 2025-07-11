@@ -9,62 +9,57 @@
 import SwiftUI
 
 struct ProtocolDetailView: View {
-    @EnvironmentObject var apiService: APIService
     let protocolItem: ProtocolModel
-    
+    @EnvironmentObject var apiService: APIService
     @State private var compoundStates: [String: Bool] = [:]
     @State private var compoundNotes: [String: String] = [:]
     @State private var isLoading = false
-    @State private var showingSuccess = false
-    @State private var showingError = false
     @State private var errorMessage = ""
-    
+    @State private var showingError = false
+    @State private var successMessage = ""
+    @State private var showingSuccess = false
+
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 20) {
                 // Protocol Header
                 VStack(alignment: .leading, spacing: 8) {
                     Text(protocolItem.name)
-                        .font(.largeTitle)
+                        .font(.title)
                         .fontWeight(.bold)
                     
-                    Text("Frequency: \(protocolItem.frequency)")
-                        .font(.subheadline)
+                    Text(protocolItem.description)
+                        .font(.body)
                         .foregroundColor(.secondary)
                     
-                    if !protocolItem.description.isEmpty {
-                        Text(protocolItem.description)
-                            .font(.body)
-                            .foregroundColor(.secondary)
-                    }
+                    Text("\(protocolItem.compounds.count) compounds • \(protocolItem.frequency)")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
                 }
-                .padding()
-                .background(Color.gray.opacity(0.1))
-                .cornerRadius(12)
-                
+                .padding(.horizontal)
+
                 // Compounds Section
                 VStack(alignment: .leading, spacing: 16) {
-                    Text("Today's Compounds")
-                        .font(.title2)
+                    Text("Today's Tracking")
+                        .font(.headline)
                         .fontWeight(.semibold)
+                        .padding(.horizontal)
                     
                     ForEach(protocolItem.compounds, id: \.self) { compound in
                         CompoundRowView(
                             compound: compound,
-                            isChecked: compoundStates[compound] ?? false,
-                            note: compoundNotes[compound] ?? "",
-                            onToggle: { isChecked in
-                                compoundStates[compound] = isChecked
-                            },
-                            onNoteChanged: { note in
-                                compoundNotes[compound] = note
-                            }
+                            taken: Binding(
+                                get: { compoundStates[compound] ?? false },
+                                set: { compoundStates[compound] = $0 }
+                            ),
+                            note: Binding(
+                                get: { compoundNotes[compound] ?? "" },
+                                set: { compoundNotes[compound] = $0 }
+                            )
                         )
+                        .padding(.horizontal)
                     }
                 }
-                .padding()
-                .background(Color.gray.opacity(0.05))
-                .cornerRadius(12)
                 
                 // Save Button
                 Button(action: saveLog) {
@@ -81,23 +76,24 @@ struct ProtocolDetailView: View {
                     .padding()
                     .background(Color.blue)
                     .foregroundColor(.white)
-                    .cornerRadius(12)
+                    .cornerRadius(10)
                 }
                 .disabled(isLoading)
-                .padding()
+                .padding(.horizontal)
+                .padding(.top, 20)
             }
         }
         .navigationTitle("Protocol Details")
         .navigationBarTitleDisplayMode(.inline)
-        .alert("Success", isPresented: $showingSuccess) {
-            Button("OK") { }
-        } message: {
-            Text("Log saved successfully!")
-        }
         .alert("Error", isPresented: $showingError) {
             Button("OK") { }
         } message: {
             Text(errorMessage)
+        }
+        .alert("Success", isPresented: $showingSuccess) {
+            Button("OK") { }
+        } message: {
+            Text(successMessage)
         }
         .onAppear {
             initializeStates()
@@ -105,6 +101,7 @@ struct ProtocolDetailView: View {
     }
     
     private func initializeStates() {
+        // Initialize compound states
         for compound in protocolItem.compounds {
             if compoundStates[compound] == nil {
                 compoundStates[compound] = false
@@ -118,8 +115,10 @@ struct ProtocolDetailView: View {
     private func saveLog() {
         isLoading = true
         
+        let protocolId = protocolItem.id
+        
         apiService.saveProtocolLog(
-            protocolId: protocolItem.id,
+            protocolId: protocolId,
             compounds: compoundStates,
             notes: compoundNotes
         ) { result in
@@ -127,6 +126,7 @@ struct ProtocolDetailView: View {
                 isLoading = false
                 switch result {
                 case .success:
+                    successMessage = "Log saved successfully!"
                     showingSuccess = true
                 case .failure(let error):
                     errorMessage = error.localizedDescription
@@ -139,38 +139,36 @@ struct ProtocolDetailView: View {
 
 struct CompoundRowView: View {
     let compound: String
-    let isChecked: Bool
-    let note: String
-    let onToggle: (Bool) -> Void
-    let onNoteChanged: (String) -> Void
+    @Binding var taken: Bool
+    @Binding var note: String
     
     var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
+        VStack(alignment: .leading, spacing: 12) {
             HStack {
-                Button(action: {
-                    onToggle(!isChecked)
-                }) {
-                    Image(systemName: isChecked ? "checkmark.circle.fill" : "circle")
-                        .font(.title2)
-                        .foregroundColor(isChecked ? .green : .gray)
+                Button(action: { taken.toggle() }) {
+                    HStack {
+                        Image(systemName: taken ? "checkmark.circle.fill" : "circle")
+                            .foregroundColor(taken ? .green : .gray)
+                            .font(.title2)
+                        
+                        Text(compound)
+                            .font(.body)
+                            .fontWeight(.medium)
+                            .foregroundColor(.primary)
+                        
+                        Spacer()
+                    }
                 }
-                
-                Text(compound)
-                    .font(.body)
-                    .fontWeight(.medium)
-                    .strikethrough(isChecked)
-                
-                Spacer()
+                .buttonStyle(PlainButtonStyle())
             }
             
-            TextField("Notes (optional)", text: Binding(
-                get: { note },
-                set: { onNoteChanged($0) }
-            ))
-            .textFieldStyle(RoundedBorderTextFieldStyle())
-            .font(.caption)
+            TextField("Add notes...", text: $note)
+                .textFieldStyle(RoundedBorderTextFieldStyle())
+                .font(.caption)
         }
-        .padding(.vertical, 4)
+        .padding()
+        .background(Color(.systemGray6))
+        .cornerRadius(10)
     }
 }
 

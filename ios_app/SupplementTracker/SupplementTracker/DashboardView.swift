@@ -120,7 +120,7 @@ struct DashboardView: View {
         isCreating = true
         let defaultCompounds = ["FOXO4-DRI", "Fisetin", "Quercetin"]
 
-        apiService.createProtocol(name: newProtocolName, compounds: ["Vitamin D", "Omega-3"]) { result in
+        apiService.createProtocol(name: newProtocolName, compounds: defaultCompounds) { result in
             DispatchQueue.main.async {
                 isCreating = false
                 showingCreateProtocol = false
