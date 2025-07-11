@@ -7,30 +7,29 @@
 //
 
 import SwiftUI
-import Foundation
 
 struct ContentView: View {
-    @StateObject private var apiService = APIService()
-    @State private var isLoggedIn = false
-
+    @StateObject private var apiService = APIService.shared
+    
     var body: some View {
-        if apiService.isAuthenticated || isLoggedIn {
-            DashboardView()
-                .environmentObject(apiService)
-        } else {
-            LoginView(isLoggedIn: $isLoggedIn)
-                .environmentObject(apiService)
+        Group {
+            if apiService.isAuthenticated {
+                DashboardView()
+                    .environmentObject(apiService)
+            } else {
+                LoginView()
+                    .environmentObject(apiService)
+            }
         }
-    }
-    .onReceive(apiService.$isAuthenticated) { authenticated in
-        if !authenticated {
-            isLoggedIn = false
+        .onAppear {
+            // Check if user is already authenticated
+            if apiService.authToken != nil {
+                apiService.isAuthenticated = true
+            }
         }
     }
 }
 
-struct ContentView_Previews: PreviewProvider {
-    static var previews: some View {
-        ContentView()
-    }
+#Preview {
+    ContentView()
 }

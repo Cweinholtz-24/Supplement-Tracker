@@ -7,84 +7,106 @@
 //
 
 import SwiftUI
-import Foundation
 
 struct DashboardView: View {
     @EnvironmentObject var apiService: APIService
     @State private var protocols: [ProtocolModel] = []
     @State private var isLoading = false
     @State private var errorMessage = ""
+    @State private var showingError = false
     
     var body: some View {
         NavigationView {
-            VStack {
+            VStack(spacing: 20) {
                 if isLoading {
                     ProgressView("Loading protocols...")
-                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                        .progressViewStyle(CircularProgressViewStyle())
                 } else if protocols.isEmpty {
-                    VStack(spacing: 20) {
-                        Image(systemName: "pills.circle")
+                    VStack(spacing: 16) {
+                        Image(systemName: "pills.fill")
                             .font(.system(size: 60))
-                            .foregroundColor(.blue)
-                        Text("No protocols yet")
+                            .foregroundColor(.gray)
+                        
+                        Text("No Protocols Yet")
                             .font(.title2)
+                            .fontWeight(.semibold)
+                        
+                        Text("Create your first supplement protocol to start tracking")
+                            .font(.body)
                             .foregroundColor(.secondary)
-                        Text("Create your first supplement protocol to get started!")
                             .multilineTextAlignment(.center)
-                            .foregroundColor(.secondary)
+                            .padding(.horizontal)
                     }
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .padding(.top, 60)
                 } else {
-                    List(protocols) { protocolItem in
-                        NavigationLink(destination: ProtocolDetailView(protocolModel: protocolItem)) {
-                            VStack(alignment: .leading, spacing: 4) {
-                                Text(protocolItem.name)
+                    List(protocols) { protocol in
+                        NavigationLink(destination: ProtocolDetailView(protocol: protocol)) {
+                            VStack(alignment: .leading, spacing: 8) {
+                                Text(protocol.name)
                                     .font(.headline)
-                                Text("\(protocolItem.compounds.count) compounds")
+                                    .fontWeight(.semibold)
+                                
+                                Text("\(protocol.compounds.count) compounds")
                                     .font(.caption)
                                     .foregroundColor(.secondary)
+                                
+                                if !protocol.compounds.isEmpty {
+                                    Text(protocol.compounds.joined(separator: ", "))
+                                        .font(.caption)
+                                        .foregroundColor(.blue)
+                                        .lineLimit(2)
+                                }
                             }
                             .padding(.vertical, 4)
                         }
                     }
+                    .listStyle(PlainListStyle())
                 }
                 
-                if !errorMessage.isEmpty {
-                    Text(errorMessage)
-                        .foregroundColor(.red)
-                        .padding()
-                }
+                Spacer()
             }
-            .navigationTitle("💊 Supplement Tracker")
+            .navigationTitle("Protocols")
             .navigationBarTitleDisplayMode(.large)
             .toolbar {
                 ToolbarItem(placement: .navigationBarTrailing) {
                     Button("Logout") {
                         apiService.logout()
                     }
+                    .foregroundColor(.red)
                 }
             }
-        }
-        .onAppear {
-            loadProtocols()
+            .onAppear {
+                loadProtocols()
+            }
+            .alert("Error", isPresented: $showingError) {
+                Button("OK") { }
+                Button("Retry") {
+                    loadProtocols()
+                }
+            } message: {
+                Text(errorMessage)
+            }
         }
     }
     
     private func loadProtocols() {
         isLoading = true
-        errorMessage = ""
-        
         apiService.fetchProtocols { result in
             DispatchQueue.main.async {
-                self.isLoading = false
+                isLoading = false
                 switch result {
                 case .success(let fetchedProtocols):
-                    self.protocols = fetchedProtocols
+                    protocols = fetchedProtocols
                 case .failure(let error):
-                    self.errorMessage = "Failed to load protocols: \(error.localizedDescription)"
-                    self.protocols = []
+                    errorMessage = error.localizedDescription
+                    showingError = true
                 }
             }
         }
     }
+}
+
+#Preview {
+    DashboardView()
+        .environmentObject(APIService.shared)
 }

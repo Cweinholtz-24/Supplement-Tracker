@@ -7,70 +7,173 @@
 //
 
 import SwiftUI
-import Foundation
 
 struct ProtocolDetailView: View {
-    let protocolModel: ProtocolModel
-    @State private var todayLog: [String: Bool] = [:]
-    @State private var notes: [String: String] = [:]
+    let protocol: ProtocolModel
+    @EnvironmentObject var apiService: APIService
+    @State private var compoundStates: [String: Bool] = [:]
+    @State private var compoundNotes: [String: String] = [:]
+    @State private var isSaving = false
+    @State private var showingSaveSuccess = false
+    @State private var errorMessage = ""
+    @State private var showingError = false
     
     var body: some View {
-        VStack(alignment: .leading, spacing: 20) {
-            Text("Today's Tracking")
-                .font(.title2)
-                .fontWeight(.semibold)
-            
-            VStack(spacing: 12) {
-                ForEach(protocolModel.compounds, id: \.self) { compound in
-                    HStack {
-                        VStack(alignment: .leading) {
-                            Text(compound)
-                                .font(.headline)
-                            TextField("Add notes...", text: Binding(
-                                get: { notes[compound] ?? "" },
-                                set: { notes[compound] = $0 }
-                            ))
-                            .textFieldStyle(RoundedBorderTextFieldStyle())
-                            .font(.caption)
-                        }
-                        
-                        Spacer()
-                        
-                        Button(action: {
-                            todayLog[compound] = !(todayLog[compound] ?? false)
-                        }) {
-                            Image(systemName: todayLog[compound] ?? false ? "checkmark.circle.fill" : "circle")
-                                .font(.title2)
-                                .foregroundColor(todayLog[compound] ?? false ? .green : .gray)
-                        }
+        ScrollView {
+            VStack(alignment: .leading, spacing: 20) {
+                // Protocol Header
+                VStack(alignment: .leading, spacing: 8) {
+                    Text(protocol.name)
+                        .font(.largeTitle)
+                        .fontWeight(.bold)
+                    
+                    if !protocol.description.isEmpty {
+                        Text(protocol.description)
+                            .font(.body)
+                            .foregroundColor(.secondary)
                     }
-                    .padding()
-                    .background(Color.gray.opacity(0.1))
-                    .cornerRadius(10)
+                    
+                    Text("Today's Tracking")
+                        .font(.title2)
+                        .fontWeight(.semibold)
+                        .padding(.top)
                 }
-            }
-            
-            Button(action: {
-                saveLog()
-            }) {
-                Text("Save Today's Log")
+                .padding(.horizontal)
+                
+                // Compounds List
+                VStack(spacing: 16) {
+                    ForEach(protocol.compounds, id: \.self) { compound in
+                        CompoundRowView(
+                            compound: compound,
+                            isTaken: Binding(
+                                get: { compoundStates[compound] ?? false },
+                                set: { compoundStates[compound] = $0 }
+                            ),
+                            note: Binding(
+                                get: { compoundNotes[compound] ?? "" },
+                                set: { compoundNotes[compound] = $0 }
+                            )
+                        )
+                    }
+                }
+                .padding(.horizontal)
+                
+                // Save Button
+                Button(action: saveLog) {
+                    HStack {
+                        if isSaving {
+                            ProgressView()
+                                .progressViewStyle(CircularProgressViewStyle(tint: .white))
+                                .scaleEffect(0.8)
+                        } else {
+                            Image(systemName: "checkmark.circle.fill")
+                        }
+                        Text(isSaving ? "Saving..." : "Save Today's Log")
+                    }
                     .frame(maxWidth: .infinity)
                     .padding()
                     .background(Color.blue)
                     .foregroundColor(.white)
-                    .cornerRadius(10)
+                    .cornerRadius(12)
+                }
+                .disabled(isSaving)
+                .padding(.horizontal)
+                .padding(.top)
             }
-            
-            Spacer()
         }
-        .padding()
-        .navigationTitle(protocolModel.name)
         .navigationBarTitleDisplayMode(.inline)
+        .onAppear {
+            initializeStates()
+        }
+        .alert("Success", isPresented: $showingSaveSuccess) {
+            Button("OK") { }
+        } message: {
+            Text("Today's log saved successfully!")
+        }
+        .alert("Error", isPresented: $showingError) {
+            Button("OK") { }
+            Button("Retry") {
+                saveLog()
+            }
+        } message: {
+            Text(errorMessage)
+        }
+    }
+    
+    private func initializeStates() {
+        for compound in protocol.compounds {
+            if compoundStates[compound] == nil {
+                compoundStates[compound] = false
+            }
+            if compoundNotes[compound] == nil {
+                compoundNotes[compound] = ""
+            }
+        }
     }
     
     private func saveLog() {
-        print("Saving log for \(protocolModel.name)")
-        print("Taken: \(todayLog)")
-        print("Notes: \(notes)")
+        isSaving = true
+        
+        apiService.saveProtocolLog(
+            protocolId: protocol.id,
+            compounds: compoundStates,
+            notes: compoundNotes
+        ) { result in
+            DispatchQueue.main.async {
+                isSaving = false
+                switch result {
+                case .success:
+                    showingSaveSuccess = true
+                case .failure(let error):
+                    errorMessage = error.localizedDescription
+                    showingError = true
+                }
+            }
+        }
+    }
+}
+
+struct CompoundRowView: View {
+    let compound: String
+    @Binding var isTaken: Bool
+    @Binding var note: String
+    
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack {
+                Button(action: { isTaken.toggle() }) {
+                    Image(systemName: isTaken ? "checkmark.circle.fill" : "circle")
+                        .font(.title2)
+                        .foregroundColor(isTaken ? .green : .gray)
+                }
+                
+                Text(compound)
+                    .font(.headline)
+                    .strikethrough(isTaken)
+                    .foregroundColor(isTaken ? .secondary : .primary)
+                
+                Spacer()
+            }
+            
+            TextField("Add notes (optional)", text: $note)
+                .textFieldStyle(RoundedBorderTextFieldStyle())
+                .font(.body)
+        }
+        .padding()
+        .background(Color(.systemGray6))
+        .cornerRadius(12)
+    }
+}
+
+#Preview {
+    NavigationView {
+        ProtocolDetailView(protocol: ProtocolModel(
+            id: "test",
+            name: "Test Protocol",
+            compounds: ["FOXO4-DRI", "Fisetin", "Quercetin"],
+            frequency: "Daily",
+            description: "Test description"
+        ))
+        .environmentObject(APIService.shared)
     }
 }

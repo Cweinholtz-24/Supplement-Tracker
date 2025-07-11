@@ -11,13 +11,21 @@ struct ProtocolModel: Identifiable, Codable {
     let id: String
     let name: String
     let compounds: [String]
+    let frequency: String
+    let description: String
     let createdAt: String?
 
-    init(id: String, name: String, compounds: [String], createdAt: String? = nil) {
+    init(id: String, name: String, compounds: [String], frequency: String = "Daily", description: String = "", createdAt: String? = nil) {
         self.id = id
         self.name = name
         self.compounds = compounds
+        self.frequency = frequency
+        self.description = description
         self.createdAt = createdAt
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case id, name, compounds, frequency, description, createdAt
     }
 }
 
@@ -48,26 +56,6 @@ struct UserProfile: Codable {
     let email: String?
     let createdAt: String
     let protocolCount: Int
-}
-//
-//  ProtocolModel.swift
-//  SupplementTracker
-//
-//  Created by Developer on 2024-01-01.
-//
-
-import Foundation
-
-struct ProtocolModel: Codable, Identifiable {
-    let id: String
-    let name: String
-    let compounds: [String]
-    let frequency: String
-    let description: String
-    
-    enum CodingKeys: String, CodingKey {
-        case id, name, compounds, frequency, description
-    }
 }
 
 struct ProtocolLogEntry: Codable {
