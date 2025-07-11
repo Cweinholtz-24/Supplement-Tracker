@@ -19,7 +19,7 @@ USER_DIR = DATA_DIR / "users"
 USER_DIR.mkdir(parents=True, exist_ok=True)
 
 # Database setup
-DB_PATH = DATA_DIR / "senolytic_tracker.db"
+DB_PATH = DATA_DIR / "supplement_tracker.db"
 
 def init_db():
     """Initialize the database with required tables"""
@@ -99,7 +99,7 @@ def init_db():
         # Insert default config values
         cursor.execute('''
             INSERT OR IGNORE INTO app_config (key, value) 
-            VALUES ('app_name', 'Senolytic Tracker')
+            VALUES ('app_name', 'Supplement Tracker')
         ''')
         cursor.execute('''
             INSERT OR IGNORE INTO app_config (key, value) 
@@ -417,7 +417,7 @@ def twofa_setup():
     data = load_data(username)
     uri = pyotp.TOTP(data["2fa_secret"]).provisioning_uri(
         name=username,
-        issuer_name="SenolyticTracker"
+        issuer_name="SupplementTracker"
     )
     img = qrcode.make(uri)
     buf = io.BytesIO()
@@ -1050,7 +1050,7 @@ document.addEventListener('DOMContentLoaded', () => {
 DASHBOARD_TEMPLATE = """
 <div class="container">
   <div class="card">
-    <h1>💊 Senolytic Tracker</h1>
+    <h1>💊 Supplement Tracker</h1>
     <p>Welcome back, <strong>{{user}}</strong>!</p>
     <div class="nav-links">
       <a href="/logout">🚪 Logout</a>

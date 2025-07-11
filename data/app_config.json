@@ -1,5 +1,5 @@
 {
-  "app_name": "Senolytic Tracker",
+  "app_name": "Supplement Tracker",
   "max_protocols_per_user": 10,
   "default_compounds": [
     "FOXO4-DRI",
