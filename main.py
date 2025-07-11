@@ -675,11 +675,13 @@ def twofa_setup():
           </div>
         </div>
         """
+        from flask import get_flashed_messages
         from jinja2 import Template
         template = Template(THEME_HEADER + setup_template)
         return template.render(qr_code=encoded, 
                              secret=data['2fa_secret'],
-                             username=username)
+                             username=username,
+                             get_flashed_messages=get_flashed_messages)
 
     except Exception as e:
         flash(f"Error generating 2FA setup: {str(e)}", "error")
@@ -750,11 +752,13 @@ def admin_twofa_setup():
           </div>
         </div>
         """
+        from flask import get_flashed_messages
         from jinja2 import Template
         template = Template(THEME_HEADER + setup_template)
         return template.render(qr_code=encoded, 
                              secret=data['2fa_secret'],
-                             username=username)
+                             username=username,
+                             get_flashed_messages=get_flashed_messages)
 
     except Exception as e:
         flash(f"Error generating admin 2FA setup: {str(e)}", "error")
@@ -1605,7 +1609,8 @@ tr:hover { background: var(--bg); }
   {% endwith %}
 </div>
 <script>
-document.addEventListener('DOMContentLoaded', () => {
+document.addEventListener```python
+('DOMContentLoaded', () => {
   const btn = document.createElement('button');
   btn.innerHTML = "🌙 <span>DarkMode</span>";
   btn.className = "theme-toggle";
