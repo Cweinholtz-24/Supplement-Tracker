@@ -114,109 +114,8 @@ def get_db_connection():
     conn.row_factory = sqlite3.Row
     return conn
 
-def migrate_json_to_db():
-    """Migrate existing JSON data to database"""
-    if not USER_DIR.exists():
-        return
-
-    migrated_users = []
-
-    with get_db_connection() as conn:
-        cursor = conn.cursor()
-
-        # Migrate users
-        for user_file in USER_DIR.glob("*.json"):
-            username = user_file.stem
-            try:
-                with open(user_file) as f:
-                    user_data = json.load(f)
-
-                # Check if user already exists in database
-                cursor.execute("SELECT id FROM users WHERE username = ?", (username,))
-                existing_user = cursor.fetchone()
-
-                if existing_user:
-                    print(f"User {username} already exists in database, updating...")
-                    # Update existing user
-                    cursor.execute('''
-                        UPDATE users SET password_hash = ?, twofa_secret = ?, email = ?
-                        WHERE username = ?
-                    ''', (user_data.get("password", ""), 
-                          user_data.get("2fa_secret", ""), 
-                          user_data.get("email", ""), username))
-                    user_id = existing_user[0]
-                else:
-                    # Insert new user
-                    cursor.execute('''
-                        INSERT INTO users (username, password_hash, twofa_secret, email)
-                        VALUES (?, ?, ?, ?)
-                    ''', (username, user_data.get("password", ""), 
-                          user_data.get("2fa_secret", ""), user_data.get("email", "")))
-                    user_id = cursor.lastrowid
-
-                # Migrate protocols
-                protocols = user_data.get("protocols", {})
-                for protocol_name, protocol_data in protocols.items():
-                    compounds = json.dumps(protocol_data.get("compounds", []))
-
-                    # Insert or update protocol
-                    cursor.execute('''
-                        INSERT OR REPLACE INTO protocols (user_id, name, compounds)
-                        VALUES (?, ?, ?)
-                    ''', (user_id, protocol_name, compounds))
-
-                    # Get protocol ID
-                    cursor.execute("SELECT id FROM protocols WHERE user_id = ? AND name = ?", 
-                                 (user_id, protocol_name))
-                    protocol_row = cursor.fetchone()
-                    if not protocol_row:
-                        continue
-                    protocol_id = protocol_row[0]
-
-                    # Migrate logs
-                    logs = protocol_data.get("logs", {})
-                    for log_date, entries in logs.items():
-                        for compound, entry_data in entries.items():
-                            cursor.execute('''
-                                INSERT OR REPLACE INTO protocol_logs 
-                                (protocol_id, log_date, compound, taken, note, mood, energy, 
-                                 side_effects, weight, general_notes)
-                                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                            ''', (protocol_id, log_date, compound, 
-                                  entry_data.get("taken", False),
-                                  entry_data.get("note", ""),
-                                  entry_data.get("mood", ""),
-                                  entry_data.get("energy", ""),
-                                  entry_data.get("side_effects", ""),
-                                  entry_data.get("weight", ""),
-                                  entry_data.get("notes", "")))
-
-                migrated_users.append(username)
-                print(f"✅ Successfully migrated user: {username}")
-
-            except Exception as e:
-                print(f"❌ Error migrating {username}: {e}")
-
-        conn.commit()
-
-        # Clean up JSON files after successful migration
-        if migrated_users:
-            print(f"\n🧹 Cleaning up {len(migrated_users)} JSON files...")
-            for user_file in USER_DIR.glob("*.json"):
-                if user_file.stem in migrated_users:
-                    try:
-                        user_file.unlink()
-                        print(f"Deleted {user_file}")
-                    except Exception as e:
-                        print(f"Error deleting {user_file}: {e}")
-
-            print(f"✅ Migration complete! {len(migrated_users)} users moved to database.")
-        else:
-            print("No users found to migrate.")
-
 # Initialize database on startup
 init_db()
-migrate_json_to_db()
 
 class User(UserMixin):
     def __init__(self, username, user_id=None):
@@ -1676,14 +1575,7 @@ DASHBOARD_TEMPLATE = """
     {% endif %}
   </div>
 
-  <div class="card">
-    <h2>🔄 Database Migration</h2>
-    <p>If you have any JSON user files that need to be migrated to the database, click the button below:</p>
-    <form method="POST" action="/migrate_users" 
-          onsubmit="return confirm('This will migrate all JSON users to the database and delete the JSON files. Continue?')">
-      <button type="submit" class="btn-primary">🚀 Migrate JSON Users to Database</button>
-    </form>
-  </div>
+  
 </div>
 """
 
@@ -1938,16 +1830,7 @@ ENHANCED_TRACKING_TEMPLATE = """
 </div>
 """
 
-@app.route("/migrate_users", methods=["POST"])
-@login_required
-def manual_migrate_users():
-    """Manual migration endpoint for moving JSON users to database"""
-    try:
-        migrate_json_to_db()
-        flash("User migration completed successfully!", "success")
-    except Exception as e:
-        flash(f"Migration failed: {str(e)}", "error")
-    return redirect(url_for("dashboard"))
+
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=5000)
