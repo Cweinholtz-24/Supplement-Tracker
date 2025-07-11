@@ -9,6 +9,367 @@ import SwiftUI
 
 struct DashboardView: View {
     @EnvironmentObject var apiService: APIService
+    @State private var protocols: [ProtocolModel] = []
+    @State private var isLoading = false
+    @State private var errorMessage = ""
+    @State private var showingError = false
+    @State private var showingCreateProtocol = false
+    @State private var selectedProtocol: ProtocolModel?
+    @State private var compounds: [String] = [""]
+    @State private var protocolName = ""
+    @State private var searchText = ""
+    
+    var filteredProtocols: [ProtocolModel] {
+        if searchText.isEmpty {
+            return protocols
+        }
+        return protocols.filter { $0.name.localizedCaseInsensitiveContains(searchText) }
+    }
+    
+    var body: some View {
+        NavigationStack {
+            VStack {
+                if isLoading && protocols.isEmpty {
+                    ProgressView("Loading protocols...")
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                } else if protocols.isEmpty {
+                    EmptyStateView {
+                        loadProtocols()
+                    }
+                } else {
+                    ScrollView {
+                        LazyVStack(spacing: 16) {
+                            // Quick Stats Card
+                            StatsCardView(protocols: protocols)
+                            
+                            // Protocols List
+                            ForEach(filteredProtocols) { protocolItem in
+                                ProtocolCardView(protocol: protocolItem) {
+                                    selectedProtocol = protocolItem
+                                }
+                            }
+                        }
+                        .padding()
+                    }
+                    .refreshable {
+                        await refreshProtocols()
+                    }
+                    .searchable(text: $searchText, prompt: "Search protocols...")
+                }
+            }
+            .navigationTitle("Supplement Tracker")
+            .toolbar {
+                ToolbarItem(placement: .navigationBarTrailing) {
+                    Button(action: { showingCreateProtocol = true }) {
+                        Image(systemName: "plus")
+                    }
+                }
+            }
+            .sheet(isPresented: $showingCreateProtocol) {
+                CreateProtocolView(isPresented: $showingCreateProtocol) {
+                    loadProtocols()
+                }
+            }
+            .sheet(item: $selectedProtocol) { protocol in
+                ProtocolDetailView(protocolItem: protocol)
+            }
+            .alert("Error", isPresented: $showingError) {
+                Button("OK") { }
+            } message: {
+                Text(errorMessage)
+            }
+        }
+        .onAppear {
+            if protocols.isEmpty {
+                loadProtocols()
+            }
+        }
+    }
+    
+    private func loadProtocols() {
+        isLoading = true
+        apiService.fetchProtocols { result in
+            DispatchQueue.main.async {
+                isLoading = false
+                switch result {
+                case .success(let fetchedProtocols):
+                    protocols = fetchedProtocols
+                case .failure(let error):
+                    errorMessage = error.localizedDescription
+                    showingError = true
+                }
+            }
+        }
+    }
+    
+    private func refreshProtocols() async {
+        await MainActor.run {
+            loadProtocols()
+        }
+    }
+}
+
+struct StatsCardView: View {
+    let protocols: [ProtocolModel]
+    
+    var activeProtocols: Int {
+        protocols.filter { $0.displayIsActive }.count
+    }
+    
+    var totalCompounds: Int {
+        protocols.reduce(0) { $0 + $1.compounds.count }
+    }
+    
+    var body: some View {
+        VStack(spacing: 16) {
+            HStack {
+                VStack(alignment: .leading) {
+                    Text("Active Protocols")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                    Text("\(activeProtocols)")
+                        .font(.title2)
+                        .fontWeight(.bold)
+                }
+                
+                Spacer()
+                
+                VStack(alignment: .trailing) {
+                    Text("Total Compounds")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                    Text("\(totalCompounds)")
+                        .font(.title2)
+                        .fontWeight(.bold)
+                }
+            }
+            
+            // Today's Progress
+            HStack {
+                Text("Today's Progress")
+                    .font(.subheadline)
+                    .fontWeight(.medium)
+                
+                Spacer()
+                
+                Text("0/\(activeProtocols)")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+            }
+            
+            ProgressView(value: 0.0, total: 1.0)
+                .progressViewStyle(LinearProgressViewStyle())
+        }
+        .padding()
+        .background(Color(.systemGray6))
+        .cornerRadius(12)
+    }
+}
+
+struct ProtocolCardView: View {
+    let protocol: ProtocolModel
+    let onTap: () -> Void
+    
+    var body: some View {
+        Button(action: onTap) {
+            VStack(alignment: .leading, spacing: 12) {
+                HStack {
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text(protocol.name)
+                            .font(.headline)
+                            .foregroundColor(.primary)
+                        
+                        Text("\(protocol.compounds.count) compounds")
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                    }
+                    
+                    Spacer()
+                    
+                    Image(systemName: "chevron.right")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                }
+                
+                // Compound pills
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(spacing: 8) {
+                        ForEach(protocol.compounds, id: \.self) { compound in
+                            Text(compound)
+                                .font(.caption)
+                                .padding(.horizontal, 8)
+                                .padding(.vertical, 4)
+                                .background(Color.blue.opacity(0.1))
+                                .foregroundColor(.blue)
+                                .cornerRadius(8)
+                        }
+                    }
+                    .padding(.horizontal, 1)
+                }
+                
+                Text("Frequency: \(protocol.displayFrequency)")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+                
+                if !protocol.displayDescription.isEmpty {
+                    Text(protocol.displayDescription)
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                        .lineLimit(2)
+                }
+            }
+            .padding()
+            .background(Color(.systemGray6))
+            .cornerRadius(12)
+        }
+        .buttonStyle(PlainButtonStyle())
+    }
+}
+
+struct EmptyStateView: View {
+    let onRefresh: () -> Void
+    
+    var body: some View {
+        VStack(spacing: 20) {
+            Image(systemName: "pills")
+                .font(.system(size: 60))
+                .foregroundColor(.gray)
+            
+            Text("No Protocols Yet")
+                .font(.title2)
+                .fontWeight(.semibold)
+            
+            Text("Create your first supplement protocol to get started tracking your health journey.")
+                .font(.body)
+                .multilineTextAlignment(.center)
+                .foregroundColor(.secondary)
+                .padding(.horizontal)
+            
+            Button("Refresh") {
+                onRefresh()
+            }
+            .buttonStyle(.borderedProminent)
+        }
+        .padding()
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+}
+
+struct CreateProtocolView: View {
+    @Binding var isPresented: Bool
+    let onSuccess: () -> Void
+    @EnvironmentObject var apiService: APIService
+    
+    @State private var protocolName = ""
+    @State private var compounds: [String] = [""]
+    @State private var isLoading = false
+    @State private var errorMessage = ""
+    @State private var showingError = false
+    
+    var body: some View {
+        NavigationStack {
+            Form {
+                Section(header: Text("Protocol Details")) {
+                    TextField("Protocol name", text: $protocolName)
+                }
+                
+                Section(header: Text("Compounds")) {
+                    ForEach(compounds.indices, id: \.self) { compoundIndex in
+                        HStack {
+                            TextField("Compound name", text: $compounds[compoundIndex])
+                            if compounds.count > 1 {
+                                Button(action: { removeCompound(at: compoundIndex) }) {
+                                    Image(systemName: "minus.circle.fill")
+                                        .foregroundColor(.red)
+                                }
+                            }
+                        }
+                    }
+                    
+                    Button(action: addCompound) {
+                        HStack {
+                            Image(systemName: "plus.circle.fill")
+                                .foregroundColor(.green)
+                            Text("Add Compound")
+                        }
+                    }
+                }
+            }
+            .navigationTitle("New Protocol")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .navigationBarLeading) {
+                    Button("Cancel") {
+                        isPresented = false
+                    }
+                }
+                
+                ToolbarItem(placement: .navigationBarTrailing) {
+                    Button("Create") {
+                        createProtocol()
+                    }
+                    .disabled(protocolName.isEmpty || compounds.allSatisfy { $0.isEmpty } || isLoading)
+                }
+            }
+            .alert("Error", isPresented: $showingError) {
+                Button("OK") { }
+            } message: {
+                Text(errorMessage)
+            }
+        }
+    }
+    
+    private func addCompound() {
+        compounds.append("")
+    }
+    
+    private func removeCompound(at index: Int) {
+        compounds.remove(at: index)
+    }
+    
+    private func createProtocol() {
+        isLoading = true
+        let nonEmptyCompounds = compounds.filter { !$0.isEmpty }
+        
+        apiService.createProtocol(name: protocolName, compounds: nonEmptyCompounds) { result in
+            DispatchQueue.main.async {
+                isLoading = false
+                switch result {
+                case .success:
+                    isPresented = false
+                    onSuccess()
+                case .failure(let error):
+                    errorMessage = error.localizedDescription
+                    showingError = true
+                }
+            }
+        }
+    }
+}
+
+struct TabView: View {
+    @EnvironmentObject var apiService: APIService
+    
+    var body: some View {
+        TabView {
+            DashboardView()
+                .tabItem {
+                    Image(systemName: "house")
+                    Text("Dashboard")
+                }
+            
+            SettingsTabView()
+                .tabItem {
+                    Image(systemName: "gear")
+                    Text("Settings")
+                }
+        }
+        .environmentObject(apiService)
+    }
+}
+
+struct DashboardView: View {
+    @EnvironmentObject var apiService: APIService
     @MainActor
     @State private var protocols: [ProtocolModel] = []
     @State private var isLoading = false

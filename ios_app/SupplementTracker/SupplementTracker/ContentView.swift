@@ -14,7 +14,7 @@ struct ContentView: View {
     var body: some View {
         Group {
             if apiService.isAuthenticated {
-                DashboardView()
+                TabView()
                     .environmentObject(apiService)
             } else {
                 LoginView()

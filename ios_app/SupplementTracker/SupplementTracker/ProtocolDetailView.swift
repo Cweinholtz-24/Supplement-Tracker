@@ -161,6 +161,10 @@ struct ProtocolDetailView: View {
                 isLoading = false
                 switch result {
                 case .success:
+                    // Log taken supplements to HealthKit
+                    for (compound, isTaken) in compoundStates where isTaken {
+                        HealthKitManager.shared.logSupplement(name: compound, amount: 1, unit: "count")
+                    }
                     showingSuccess = true
                 case .failure(let error):
                     errorMessage = error.localizedDescription
