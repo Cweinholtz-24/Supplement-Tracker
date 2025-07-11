@@ -10,7 +10,7 @@ import SwiftUI
 import Foundation
 
 struct ProtocolDetailView: View {
-    let protocol: ProtocolModel
+    let protocolModel: ProtocolModel
     @State private var todayLog: [String: Bool] = [:]
     @State private var notes: [String: String] = [:]
     
@@ -21,7 +21,7 @@ struct ProtocolDetailView: View {
                 .fontWeight(.semibold)
             
             VStack(spacing: 12) {
-                ForEach(protocol.compounds, id: \.self) { compound in
+                ForEach(protocolModel.compounds, id: \.self) { compound in
                     HStack {
                         VStack(alignment: .leading) {
                             Text(compound)
@@ -64,12 +64,12 @@ struct ProtocolDetailView: View {
             Spacer()
         }
         .padding()
-        .navigationTitle(protocol.name)
+        .navigationTitle(protocolModel.name)
         .navigationBarTitleDisplayMode(.inline)
     }
     
     private func saveLog() {
-        print("Saving log for \(protocol.name)")
+        print("Saving log for \(protocolModel.name)")
         print("Taken: \(todayLog)")
         print("Notes: \(notes)")
     }

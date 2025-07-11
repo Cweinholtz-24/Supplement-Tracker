@@ -16,7 +16,7 @@ struct ContentView: View {
             DashboardView()
                 .environmentObject(apiService)
         } else {
-            LoginView()
+            LoginView(isLoggedIn: .constant(false))
                 .environmentObject(apiService)
         }
     }

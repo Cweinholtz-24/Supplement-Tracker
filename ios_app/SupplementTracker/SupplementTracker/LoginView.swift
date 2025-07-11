@@ -11,6 +11,7 @@ import Foundation
 
 struct LoginView: View {
     @EnvironmentObject var apiService: APIService
+    @Binding var isLoggedIn: Bool
     
     @State private var username = ""
     @State private var password = ""
@@ -52,6 +53,51 @@ struct LoginView: View {
                 Button(action: {
                     loginUser()
                 }) {
+                    if isLoading {
+                        ProgressView()
+                            .progressViewStyle(CircularProgressViewStyle(tint: .white))
+                            .scaleEffect(0.8)
+                    } else {
+                        Text("Login")
+                            .fontWeight(.semibold)
+                    }
+                }
+                .frame(maxWidth: .infinity)
+                .padding()
+                .background(Color.blue)
+                .foregroundColor(.white)
+                .cornerRadius(10)
+                .disabled(isLoading || username.isEmpty || password.isEmpty)
+            }
+            .padding(.horizontal, 40)
+            
+            Spacer()
+        }
+        .onReceive(apiService.$isAuthenticated) { authenticated in
+            if authenticated {
+                isLoggedIn = true
+            }
+        }
+    }
+    
+    private func loginUser() {
+        isLoading = true
+        errorMessage = ""
+        
+        apiService.login(username: username, password: password) { result in
+            DispatchQueue.main.async {
+                isLoading = false
+                switch result {
+                case .success:
+                    // Login successful, apiService.isAuthenticated will trigger the view change
+                    break
+                case .failure(let error):
+                    errorMessage = error.localizedDescription
+                }
+            }
+        }
+    }
+}
                     if isLoading {
                         HStack {
                             ProgressView()

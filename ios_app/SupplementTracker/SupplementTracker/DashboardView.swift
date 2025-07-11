@@ -35,12 +35,12 @@ struct DashboardView: View {
                     }
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
                 } else {
-                    List(protocols) { protocol in
-                        NavigationLink(destination: ProtocolDetailView(protocol: protocol)) {
+                    List(protocols) { protocolItem in
+                        NavigationLink(destination: ProtocolDetailView(protocolModel: protocolItem)) {
                             VStack(alignment: .leading, spacing: 4) {
-                                Text(protocol.name)
+                                Text(protocolItem.name)
                                     .font(.headline)
-                                Text("\(protocol.compounds.count) compounds")
+                                Text("\(protocolItem.compounds.count) compounds")
                                     .font(.caption)
                                     .foregroundColor(.secondary)
                             }
