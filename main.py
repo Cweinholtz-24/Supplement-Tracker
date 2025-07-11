@@ -121,6 +121,14 @@ def init_db():
             INSERT OR IGNORE INTO app_config (key, value) 
             VALUES ('analytics_enabled', 'true')
         ''')
+        cursor.execute('''
+            INSERT OR IGNORE INTO app_config (key, value) 
+            VALUES ('sendgrid_api_key', '')
+        ''')
+        cursor.execute('''
+            INSERT OR IGNORE INTO app_config (key, value) 
+            VALUES ('sendgrid_from_email', '')
+        ''')
 
         conn.commit()
 
@@ -698,9 +706,9 @@ def update_config():
         cursor = conn.cursor()
 
         # Update configuration values
-        for key in ["app_name", "max_protocols_per_user"]:
+        for key in ["app_name", "max_protocols_per_user", "sendgrid_api_key", "sendgrid_from_email"]:
             value = request.form.get(key)
-            if value:
+            if value is not None:  # Allow empty strings for clearing values
                 cursor.execute('''
                     INSERT OR REPLACE INTO app_config (key, value, updated_at)
                     VALUES (?, ?, CURRENT_TIMESTAMP)
@@ -1020,13 +1028,13 @@ from sendgrid.helpers.mail import Mail
 from flask import flash
 
 def send_email(to_email, subject, body):
-    # Use environment variables for SendGrid configuration
-    api_key = os.getenv("SENDGRID_API_KEY", "")
-    from_email = os.getenv("SENDGRID_FROM_EMAIL", "")
+    # Use database configuration for SendGrid
+    api_key = get_config_value("sendgrid_api_key", "")
+    from_email = get_config_value("sendgrid_from_email", "")
 
     if not api_key or not from_email:
-        print("❌ SendGrid configuration missing. Please set SENDGRID_API_KEY and SENDGRID_FROM_EMAIL in Secrets.")
-        flash("Email configuration not set up. Please configure SendGrid settings in Secrets.", "error")
+        print("❌ SendGrid configuration missing. Please configure SendGrid settings in Admin Dashboard.")
+        flash("Email configuration not set up. Please configure SendGrid settings in Admin Dashboard.", "error")
         return False
 
     try:
@@ -1170,6 +1178,42 @@ ADMIN_DASHBOARD_TEMPLATE = """
         </div>
       </div>
       <button type="submit" class="btn-success">💾 Save Configuration</button>
+    </form>
+  </div>
+
+  <div class="card">
+    <h2>📧 SendGrid Email Configuration</h2>
+    <form method="POST" action="/admin/config">
+      <div style="display: grid; gap: 16px;">
+        <div class="form-group">
+          <label>SendGrid API Key</label>
+          <input name="sendgrid_api_key" type="password" value="{{config.get('sendgrid_api_key', '')}}" 
+                 placeholder="Enter your SendGrid API key">
+          <small style="color: var(--text); opacity: 0.7;">
+            Get your API key from SendGrid Dashboard → Settings → API Keys
+          </small>
+        </div>
+        <div class="form-group">
+          <label>From Email Address</label>
+          <input name="sendgrid_from_email" type="email" value="{{config.get('sendgrid_from_email', '')}}" 
+                 placeholder="verified@yourdomain.com">
+          <small style="color: var(--text); opacity: 0.7;">
+            Must be a verified sender in your SendGrid account
+          </small>
+        </div>
+        <div style="background: var(--bg); padding: 16px; border-radius: 8px; border: 1px solid var(--border);">
+          <h4 style="margin: 0 0 8px 0; color: var(--primary);">📋 Setup Instructions:</h4>
+          <ol style="margin: 0; padding-left: 20px; font-size: 14px;">
+            <li>Create a SendGrid account at <a href="https://sendgrid.com" target="_blank">sendgrid.com</a></li>
+            <li>Go to Settings → API Keys → Create API Key</li>
+            <li>Give it "Mail Send" permissions</li>
+            <li>Copy the API key and paste it above</li>
+            <li>Go to Settings → Sender Authentication → Verify a Single Sender</li>
+            <li>Verify your email address and use it as the "From Email" above</li>
+          </ol>
+        </div>
+      </div>
+      <button type="submit" class="btn-primary">📧 Save SendGrid Configuration</button>
     </form>
   </div>
   {% endif %}
