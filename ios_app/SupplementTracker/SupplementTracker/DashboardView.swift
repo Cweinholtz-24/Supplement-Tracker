@@ -193,11 +193,11 @@ struct CreateProtocolView: View {
                 }
 
                 Section(header: Text("Compounds")) {
-                    ForEach(compounds.indices, id: \.self) { index in
+                    ForEach(compounds.indices, id: \.self) { compoundIndex in
                         HStack {
-                            TextField("Compound name", text: $compounds[index])
+                            TextField("Compound name", text: $compounds[compoundIndex])
                             if compounds.count > 1 {
-                                Button(action: { removeCompound(at: index) }) {
+                                Button(action: { removeCompound(at: compoundIndex) }) {
                                     Image(systemName: "minus.circle.fill")
                                         .foregroundColor(.red)
                                 }
@@ -314,7 +314,7 @@ struct AnalyticsTabView: View {
             .onAppear {
                 fetchProtocols()
             }
-            .onChange(of: selectedProtocolId) { _, newValue in
+            .onChange(of: selectedProtocolId) { newValue in
                 if let protocolId = newValue {
                     fetchAnalytics(for: protocolId)
                 }
@@ -377,10 +377,8 @@ struct AnalyticsDetailView: View {
                     .font(.headline)
                     .padding(.horizontal)
 
-                ForEach(Array(analytics.compoundStats.keys), id: \.self) { compound in
-                    if let stats = analytics.compoundStats[compound] {
-                        CompoundStatsRow(compound: compound, stats: stats)
-                    }
+                ForEach(Array(analytics.compoundStats.keys.sorted()), id: \.self) { compound in
+                    CompoundStatsRow(compound: compound, stats: analytics.compoundStats[compound]!)
                 }
             }
         }
