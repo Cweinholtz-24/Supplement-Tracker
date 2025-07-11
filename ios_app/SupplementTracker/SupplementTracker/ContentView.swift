@@ -1,3 +1,4 @@
+
 //
 //  ContentView.swift
 //  SupplementTracker
@@ -10,13 +11,14 @@ import Foundation
 
 struct ContentView: View {
     @StateObject private var apiService = APIService()
+    @State private var isLoggedIn = false
 
     var body: some View {
-        if apiService.isAuthenticated {
+        if apiService.isAuthenticated || isLoggedIn {
             DashboardView()
                 .environmentObject(apiService)
         } else {
-            LoginView(isLoggedIn: .constant(false))
+            LoginView(isLoggedIn: $isLoggedIn)
                 .environmentObject(apiService)
         }
     }

@@ -1,4 +1,3 @@
-
 //
 //  LoginView.swift
 //  SupplementTracker
@@ -12,92 +11,47 @@ import Foundation
 struct LoginView: View {
     @EnvironmentObject var apiService: APIService
     @Binding var isLoggedIn: Bool
-    
+
     @State private var username = ""
     @State private var password = ""
     @State private var isLoading = false
     @State private var errorMessage = ""
-    
+
     var body: some View {
         VStack(spacing: 20) {
             VStack(spacing: 10) {
                 Image(systemName: "pills.circle.fill")
                     .font(.system(size: 80))
                     .foregroundColor(.blue)
-                
+
                 Text("Supplement Tracker")
                     .font(.largeTitle)
                     .fontWeight(.bold)
-                
+
                 Text("Track your supplement protocols")
                     .font(.subheadline)
                     .foregroundColor(.secondary)
             }
             .padding(.bottom, 40)
-            
+
             VStack(spacing: 15) {
                 TextField("Username", text: $username)
                     .textFieldStyle(RoundedBorderTextFieldStyle())
                     .autocapitalization(.none)
                     .disableAutocorrection(true)
-                
+
                 SecureField("Password", text: $password)
                     .textFieldStyle(RoundedBorderTextFieldStyle())
-                
+
                 if !errorMessage.isEmpty {
                     Text(errorMessage)
                         .foregroundColor(.red)
                         .font(.caption)
                 }
-                
+
                 Button(action: {
                     loginUser()
                 }) {
-                    if isLoading {
-                        ProgressView()
-                            .progressViewStyle(CircularProgressViewStyle(tint: .white))
-                            .scaleEffect(0.8)
-                    } else {
-                        Text("Login")
-                            .fontWeight(.semibold)
-                    }
-                }
-                .frame(maxWidth: .infinity)
-                .padding()
-                .background(Color.blue)
-                .foregroundColor(.white)
-                .cornerRadius(10)
-                .disabled(isLoading || username.isEmpty || password.isEmpty)
-            }
-            .padding(.horizontal, 40)
-            
-            Spacer()
-        }
-        .onReceive(apiService.$isAuthenticated) { authenticated in
-            if authenticated {
-                isLoggedIn = true
-            }
-        }
-    }
-    
-    private func loginUser() {
-        isLoading = true
-        errorMessage = ""
-        
-        apiService.login(username: username, password: password) { result in
-            DispatchQueue.main.async {
-                isLoading = false
-                switch result {
-                case .success:
-                    // Login successful, apiService.isAuthenticated will trigger the view change
-                    break
-                case .failure(let error):
-                    errorMessage = error.localizedDescription
-                }
-            }
-        }
-    }
-}
                     if isLoading {
                         HStack {
                             ProgressView()
@@ -111,7 +65,7 @@ struct LoginView: View {
                 }
                 .buttonStyle(.borderedProminent)
                 .disabled(username.isEmpty || password.isEmpty || isLoading)
-                
+
                 Button(action: {
                     // Handle registration - could navigate to registration view
                     // For now, show message
@@ -122,20 +76,25 @@ struct LoginView: View {
                 }
             }
             .padding(.horizontal, 40)
-            
+
             Spacer()
         }
         .padding()
+        .onReceive(apiService.$isAuthenticated) { authenticated in
+            if authenticated {
+                isLoggedIn = true
+            }
+        }
     }
-    
+
     private func loginUser() {
         isLoading = true
         errorMessage = ""
-        
+
         apiService.login(username: username, password: password) { result in
             DispatchQueue.main.async {
                 isLoading = false
-                
+
                 switch result {
                 case .success:
                     // APIService already sets isAuthenticated = true
@@ -150,7 +109,7 @@ struct LoginView: View {
 
 struct LoginView_Previews: PreviewProvider {
     static var previews: some View {
-        LoginView()
+        LoginView(isLoggedIn: .constant(false))
             .environmentObject(APIService())
     }
 }
