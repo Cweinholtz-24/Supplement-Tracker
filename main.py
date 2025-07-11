@@ -777,7 +777,6 @@ def admin_dashboard():
     with get_db_connection() as conn:
         cursor = conn.cursor()
 
-        ```python
         # Get app configuration
         cursor.execute("SELECT key, value FROM app_config")
         config = {row[0]: row[1] for row in cursor.fetchall()}
