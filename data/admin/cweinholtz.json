@@ -1,8 +1,0 @@
-{
-  "password": "scrypt:32768:8:1$kqM1VB8j0ooAj3Cr$0adae304e5add6d4c5d738a763eb4ee56e610fec593e90375d06ff0c02b7433e4a0989636541ab5db8c25b928e0b022c1ed6b4a11e35bb41d54f09b6f11b2307",
-  "2fa_secret": "I7ZQYYVBVQQCBHL3URJDAGQFIY4O4MB4",
-  "role": "super_admin",
-  "email": "",
-  "created_at": "2025-07-11T11:21:55.026499",
-  "last_login": ""
-}

@@ -303,51 +303,37 @@ def twofa_setup():
         flash("Session expired. Please login again.", "error")
         return redirect(url_for("login"))
     
-    try:
-        if is_admin:
-            data = load_admin_data(username)
-        else:
-            data = load_data(username)
-            
-        if not data or "2fa_secret" not in data:
-            flash("2FA setup data not found. Please try registering again.", "error")
-            return redirect(url_for("admin_register" if is_admin else "register"))
-            
-        uri = pyotp.TOTP(data["2fa_secret"]).provisioning_uri(
-            name=f"{username}{'[Admin]' if is_admin else ''}",
-            issuer_name="SenolyticTracker"
-        )
-        img = qrcode.make(uri)
-        buf = io.BytesIO()
-        img.save(buf, format="PNG")
-        buf.seek(0)
-        encoded = base64.b64encode(buf.read()).decode()
+    if is_admin:
+        data = load_admin_data(username)
+    else:
+        data = load_data(username)
         
-        setup_template = """
-        <div class="container">
-          <div class="card" style="max-width: 500px; margin: 80px auto; text-align: center;">
-            <h2>🔐 Set Up Two-Factor Authentication</h2>
-            {% if is_admin %}
-              <p><strong>Admin Account Setup</strong></p>
-            {% endif %}
-            <p>Scan this QR code with Google Authenticator or similar app:</p>
-            <img src='data:image/png;base64,{qr_code}' style="border: 1px solid var(--border); border-radius: 8px; margin: 20px 0;">
-            <div style="background: var(--bg); padding: 16px; border-radius: 8px; margin: 20px 0;">
-              <p><strong>Manual entry code:</strong></p>
-              <code style="font-size: 16px; font-weight: bold; color: var(--primary);">{secret}</code>
-            </div>
-            <a href='/2fa' class="btn-primary" style="display: inline-block; padding: 12px 24px; text-decoration: none; border-radius: 8px;">Continue to Verify →</a>
-          </div>
+    uri = pyotp.TOTP(data["2fa_secret"]).provisioning_uri(
+        name=username,
+        issuer_name="SenolyticTracker"
+    )
+    img = qrcode.make(uri)
+    buf = io.BytesIO()
+    img.save(buf, format="PNG")
+    buf.seek(0)
+    encoded = base64.b64encode(buf.read()).decode()
+    
+    setup_template = """
+    <div class="container">
+      <div class="card" style="max-width: 500px; margin: 80px auto; text-align: center;">
+        <h2>🔐 Set Up Two-Factor Authentication</h2>
+        <p>Scan this QR code with Google Authenticator or similar app:</p>
+        <img src='data:image/png;base64,{qr_code}' style="border: 1px solid var(--border); border-radius: 8px; margin: 20px 0;">
+        <div style="background: var(--bg); padding: 16px; border-radius: 8px; margin: 20px 0;">
+          <p><strong>Manual entry code:</strong></p>
+          <code style="font-size: 16px; font-weight: bold; color: var(--primary);">{secret}</code>
         </div>
-        """
-        
-        return render_template_string(THEME_HEADER + setup_template, 
-                                    qr_code=encoded, 
-                                    secret=data['2fa_secret'],
-                                    is_admin=is_admin)
-    except Exception as e:
-        flash(f"Error setting up 2FA: {str(e)}", "error")
-        return redirect(url_for("admin_register" if is_admin else "register"))
+        <a href='/2fa' class="btn-primary" style="display: inline-block; padding: 12px 24px; text-decoration: none; border-radius: 8px;">Continue to Verify →</a>
+      </div>
+    </div>
+    """
+    
+    return render_template_string(THEME_HEADER + setup_template, qr_code=encoded, secret=data['2fa_secret'])
 
 @app.route("/logout")
 @login_required
