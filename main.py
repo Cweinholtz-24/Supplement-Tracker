@@ -2534,3 +2534,6 @@ EDIT_ADMIN_TEMPLATE = """
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=5000)
+
+# This makes the app available for gunicorn
+application = app
