@@ -800,6 +800,10 @@ def delete_admin(username):
 @login_required
 @admin_required
 def admin_users():
+    page = request.args.get('page', 1, type=int)
+    per_page = 10
+    offset = (page - 1) * per_page
+    
     with get_db_connection() as conn:
         cursor = conn.cursor()
         
@@ -810,6 +814,11 @@ def admin_users():
         except sqlite3.OperationalError:
             pass  # Column already exists
             
+        # Get total count for pagination
+        cursor.execute("SELECT COUNT(*) FROM users")
+        total_users = cursor.fetchone()[0]
+        
+        # Get paginated users
         cursor.execute('''
             SELECT u.id, u.username, u.email, u.created_at, u.last_login,
                    COUNT(p.id) as protocol_count, u.disabled
@@ -817,10 +826,27 @@ def admin_users():
             LEFT JOIN protocols p ON u.id = p.user_id
             GROUP BY u.id, u.username, u.email, u.created_at, u.last_login, u.disabled
             ORDER BY u.username
-        ''')
+            LIMIT ? OFFSET ?
+        ''', (per_page, offset))
         users = cursor.fetchall()
 
-    return render_template_string(THEME_HEADER + ADMIN_USERS_TEMPLATE, users=users)
+    # Calculate pagination info
+    total_pages = (total_users + per_page - 1) // per_page
+    has_prev = page > 1
+    has_next = page < total_pages
+    prev_page = page - 1 if has_prev else None
+    next_page = page + 1 if has_next else None
+
+    return render_template_string(THEME_HEADER + ADMIN_USERS_TEMPLATE, 
+                                users=users, 
+                                current_page=page,
+                                total_pages=total_pages,
+                                total_users=total_users,
+                                has_prev=has_prev,
+                                has_next=has_next,
+                                prev_page=prev_page,
+                                next_page=next_page,
+                                per_page=per_page)
 
 @app.route("/admin/users/<int:user_id>/disable", methods=["POST"])
 @login_required
@@ -2319,7 +2345,13 @@ ADMIN_USERS_TEMPLATE = """
   </div>
 
   <div class="card">
-    <h2>👥 All Users</h2>
+    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 24px;">
+      <h2>👥 All Users</h2>
+      <div style="color: var(--text); opacity: 0.7;">
+        Total: {{total_users}} users | Showing {{(current_page-1)*per_page + 1}}-{{((current_page-1)*per_page + users|length)}} of {{total_users}}
+      </div>
+    </div>
+    
     {% if users %}
       <table>
         <thead>
@@ -2371,6 +2403,42 @@ ADMIN_USERS_TEMPLATE = """
           {% endfor %}
         </tbody>
       </table>
+
+      <!-- Pagination Controls -->
+      {% if total_pages > 1 %}
+      <div class="pagination" style="display: flex; justify-content: center; align-items: center; gap: 12px; margin: 24px 0; padding: 20px; background: var(--bg); border-radius: 8px; border: 1px solid var(--border);">
+        {% if has_prev %}
+          <a href="/admin/users?page={{prev_page}}" class="btn-primary btn-small">← Previous</a>
+        {% else %}
+          <span class="btn-small" style="background: var(--bg); color: var(--text); opacity: 0.5; cursor: not-allowed;">← Previous</span>
+        {% endif %}
+
+        <div style="display: flex; gap: 8px; align-items: center;">
+          {% for page_num in range(1, total_pages + 1) %}
+            {% if page_num == current_page %}
+              <span class="btn-small" style="background: var(--primary); color: white; font-weight: bold;">{{page_num}}</span>
+            {% elif page_num <= 3 or page_num > total_pages - 3 or (page_num >= current_page - 1 and page_num <= current_page + 1) %}
+              <a href="/admin/users?page={{page_num}}" class="btn-small" style="background: var(--card-bg); border: 1px solid var(--border);">{{page_num}}</a>
+            {% elif page_num == 4 and current_page > 5 %}
+              <span style="color: var(--text); opacity: 0.5;">...</span>
+            {% elif page_num == total_pages - 3 and current_page < total_pages - 4 %}
+              <span style="color: var(--text); opacity: 0.5;">...</span>
+            {% endif %}
+          {% endfor %}
+        </div>
+
+        {% if has_next %}
+          <a href="/admin/users?page={{next_page}}" class="btn-primary btn-small">Next →</a>
+        {% else %}
+          <span class="btn-small" style="background: var(--bg); color: var(--text); opacity: 0.5; cursor: not-allowed;">Next →</span>
+        {% endif %}
+      </div>
+      
+      <div style="text-align: center; color: var(--text); opacity: 0.7; font-size: 14px; margin-top: 16px;">
+        Page {{current_page}} of {{total_pages}} | {{per_page}} users per page
+      </div>
+      {% endif %}
+
     {% else %}
       <p style="text-align: center; color: #6b7280; margin: 40px 0;">No users found.</p>
     {% endif %}
