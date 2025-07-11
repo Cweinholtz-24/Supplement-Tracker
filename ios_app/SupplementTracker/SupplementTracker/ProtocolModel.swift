@@ -11,15 +11,15 @@ struct ProtocolModel: Identifiable, Codable {
     let id: String
     let name: String
     let compounds: [String]
-    let frequency: String
-    let description: String?
+    var frequency: String
+    var description: String
     var isActive: Bool
     let createdAt: String?
     let updatedAt: String?
     let userId: Int?
 
     // Custom initializer to handle default values
-    init(id: String, name: String, compounds: [String], frequency: String, description: String? = nil, isActive: Bool = true, createdAt: String? = nil, updatedAt: String? = nil, userId: Int? = nil) {
+    init(id: String, name: String, compounds: [String], frequency: String = "Daily", description: String = "", isActive: Bool = true, createdAt: String? = nil, updatedAt: String? = nil, userId: Int? = nil) {
         self.id = id
         self.name = name
         self.compounds = compounds

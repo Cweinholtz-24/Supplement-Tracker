@@ -314,7 +314,7 @@ struct AnalyticsTabView: View {
             .onAppear {
                 fetchProtocols()
             }
-            .onChange(of: selectedProtocolId) { newValue in
+            .onChange(of: selectedProtocolId) { _, newValue in
                 if let protocolId = newValue {
                     fetchAnalytics(for: protocolId)
                 }
@@ -612,4 +612,3 @@ struct ProtocolRowView: View {
     DashboardView()
         .environmentObject(APIService.shared)
 }
-```
