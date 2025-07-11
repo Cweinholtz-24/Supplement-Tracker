@@ -57,8 +57,24 @@ def register():
     if request.method == "POST":
         username = request.form["username"].strip().lower()
         password = request.form["password"]
+        
+        if not username or not password:
+            flash("Username and password are required", "error")
+            return render_template_string(THEME_HEADER + AUTH_TEMPLATE, title="Register", action="register")
+            
+        if len(username) < 3:
+            flash("Username must be at least 3 characters", "error")
+            return render_template_string(THEME_HEADER + AUTH_TEMPLATE, title="Register", action="register")
+            
+        if len(password) < 6:
+            flash("Password must be at least 6 characters", "error")
+            return render_template_string(THEME_HEADER + AUTH_TEMPLATE, title="Register", action="register")
+            
         path = user_file(username)
-        if path.exists(): return "User already exists"
+        if path.exists(): 
+            flash("User already exists", "error")
+            return render_template_string(THEME_HEADER + AUTH_TEMPLATE, title="Register", action="register")
+            
         secret = pyotp.random_base32()
         with open(path, "w") as f:
             json.dump({
@@ -68,42 +84,61 @@ def register():
                 "email": ""
             }, f)
         session["pending_user"] = username
+        flash("Account created successfully! Please set up 2FA.", "success")
         return redirect(url_for("twofa_setup"))
-    return render_template_string(AUTH_TEMPLATE, title="Register", action="register")
+    return render_template_string(THEME_HEADER + AUTH_TEMPLATE, title="Register", action="register")
 
 @app.route("/login", methods=["GET", "POST"])
 def login():
     if request.method == "POST":
         username = request.form["username"].strip().lower()
         password = request.form["password"]
+        
+        if not username or not password:
+            flash("Username and password are required", "error")
+            return render_template_string(THEME_HEADER + AUTH_TEMPLATE, title="Login", action="login")
+            
         path = user_file(username)
-        if not path.exists(): return "User not found"
+        if not path.exists(): 
+            flash("User not found", "error")
+            return render_template_string(THEME_HEADER + AUTH_TEMPLATE, title="Login", action="login")
+            
         data = load_data(username)
-        if not check_password_hash(data["password"], password): return "Incorrect password"
+        if not check_password_hash(data["password"], password): 
+            flash("Incorrect password", "error")
+            return render_template_string(THEME_HEADER + AUTH_TEMPLATE, title="Login", action="login")
+            
         session["pending_user"] = username
         return redirect(url_for("twofa_verify"))
-    return render_template_string(AUTH_TEMPLATE, title="Login", action="login")
+    return render_template_string(THEME_HEADER + AUTH_TEMPLATE, title="Login", action="login")
 
 @app.route("/2fa", methods=["GET", "POST"])
 def twofa_verify():
     username = session.get("pending_user")
     if not username:
+        flash("Session expired. Please login again.", "error")
         return redirect(url_for("login"))
     data = load_data(username)
     if request.method == "POST":
         code = request.form["code"]
+        if not code or len(code) != 6:
+            flash("Please enter a valid 6-digit code", "error")
+            return render_template_string(THEME_HEADER + TWOFA_TEMPLATE)
         if pyotp.TOTP(data["2fa_secret"]).verify(code):
             login_user(User(username))
             session.pop("pending_user")
+            flash("Successfully logged in!", "success")
             return redirect(url_for("dashboard"))
         else:
-            return "Invalid 2FA code"
-    return render_template_string(TWOFA_TEMPLATE)
+            flash("Invalid 2FA code. Please try again.", "error")
+            return render_template_string(THEME_HEADER + TWOFA_TEMPLATE)
+    return render_template_string(THEME_HEADER + TWOFA_TEMPLATE)
 
 @app.route("/2fa_setup")
 def twofa_setup():
     username = session.get("pending_user")
     if not username:
+        flash("Session expired. Please login again.", "error")
         return redirect(url_for("login"))
     data = load_data(username)
     uri = pyotp.TOTP(data["2fa_secret"]).provisioning_uri(
@@ -115,12 +150,23 @@ def twofa_setup():
     img.save(buf, format="PNG")
     buf.seek(0)
     encoded = base64.b64encode(buf.read()).decode()
-    return f"""
-        <h2>Scan QR Code in Google Authenticator</h2>
-        <img src='data:image/png;base64,{encoded}'><br><br>
-        Manual entry code: <code>{data['2fa_secret']}</code><br><br>
-        <a href='/2fa'>Continue to verify</a>
+    
+    setup_template = """
+    <div class="container">
+      <div class="card" style="max-width: 500px; margin: 80px auto; text-align: center;">
+        <h2>🔐 Set Up Two-Factor Authentication</h2>
+        <p>Scan this QR code with Google Authenticator or similar app:</p>
+        <img src='data:image/png;base64,{qr_code}' style="border: 1px solid var(--border); border-radius: 8px; margin: 20px 0;">
+        <div style="background: var(--bg); padding: 16px; border-radius: 8px; margin: 20px 0;">
+          <p><strong>Manual entry code:</strong></p>
+          <code style="font-size: 16px; font-weight: bold; color: var(--primary);">{secret}</code>
+        </div>
+        <a href='/2fa' class="btn-primary" style="display: inline-block; padding: 12px 24px; text-decoration: none; border-radius: 8px;">Continue to Verify →</a>
+      </div>
+    </div>
     """
+    
+    return render_template_string(THEME_HEADER + setup_template, qr_code=encoded, secret=data['2fa_secret'])
 
 @app.route("/logout")
 @login_required
@@ -139,9 +185,11 @@ def dashboard():
 def create_protocol():
     name = request.form.get("protocol_name", "").strip()
     if not name:
-        return "Protocol name is required", 400
+        flash("Protocol name is required", "error")
+        return redirect(url_for("dashboard"))
     if len(name) > 50:
-        return "Protocol name too long", 400
+        flash("Protocol name too long (max 50 characters)", "error")
+        return redirect(url_for("dashboard"))
 
     data = load_data()
     if name not in data["protocols"]:
@@ -150,6 +198,9 @@ def create_protocol():
             "logs": {}
         }
         save_data(data)
+        flash(f"Protocol '{name}' created successfully!", "success")
+    else:
+        flash(f"Protocol '{name}' already exists", "warning")
     return redirect(url_for("tracker", name=name))
 
 @app.route("/delete_protocol/<name>", methods=["POST"])
@@ -159,6 +210,9 @@ def delete_protocol(name):
     if name in data["protocols"]:
         del data["protocols"][name]
         save_data(data)
+        flash(f"Protocol '{name}' deleted successfully", "success")
+    else:
+        flash(f"Protocol '{name}' not found", "error")
     return redirect(url_for("dashboard"))
 
 @app.route("/protocol/<name>", methods=["GET", "POST"])
@@ -176,6 +230,7 @@ def tracker(name):
                 "note": request.form.get(f"note_{c}", "")
             }
         save_data(data)
+        flash("Daily log saved successfully!", "success")
         return redirect(url_for("tracker", name=name))
     return render_template_string(THEME_HEADER + TRACKER_TEMPLATE,
         name=name, compounds=prot["compounds"], log=prot["logs"].get(today, {}),
@@ -186,8 +241,13 @@ def tracker(name):
 def edit_compounds(name):
     data = load_data()
     compounds = request.form.get("new_compounds", "")
-    data["protocols"][name]["compounds"] = [c.strip() for c in compounds.split(",") if c.strip()]
-    save_data(data)
+    compound_list = [c.strip() for c in compounds.split(",") if c.strip()]
+    if not compound_list:
+        flash("At least one compound is required", "error")
+    else:
+        data["protocols"][name]["compounds"] = compound_list
+        save_data(data)
+        flash(f"Compounds updated successfully!", "success")
     return redirect(url_for("tracker", name=name))
 
 
@@ -230,13 +290,18 @@ def reminder(name):
     logs = data["protocols"][name]["logs"]
     last = sorted(logs.keys())[-1] if logs else None
     days_since = (date.today() - datetime.strptime(last, "%Y-%m-%d").date()).days if last else "N/A"
-    msg = f"Reminder: Log today's dose for '{name}'\\nLast log: {last} ({days_since} days ago)"
+    msg = f"Reminder: Log today's dose for '{name}'\nLast log: {last} ({days_since} days ago)"
 
     email = data.get("email", "")
     if email:
-        send_email(email, f"Reminder: {name}", msg)
+        if send_email(email, f"Senolytic Reminder: {name}", msg):
+            flash("Reminder email sent successfully!", "success")
+        else:
+            flash("Failed to send reminder email.", "error")
+    else:
+        flash("No email address configured for reminders.", "warning")
 
-    return f"<pre>{msg}</pre><a href='/protocol/{name}'>← Back</a>"
+    return redirect(url_for("tracker", name=name))
 
 @app.route("/protocol/<name>/analytics")
 @login_required
@@ -340,6 +405,7 @@ def enhanced_tracking(name):
         prot["logs"][today]["notes"] = request.form.get("general_notes", "")
 
         save_data(data)
+        flash("Enhanced tracking data saved successfully!", "success")
         return redirect(url_for("enhanced_tracking", name=name))
 
     return render_template_string(THEME_HEADER + ENHANCED_TRACKING_TEMPLATE,
@@ -348,12 +414,18 @@ def enhanced_tracking(name):
 
 import smtplib
 from email.mime.text import MIMEText
+from flask import flash
 
 def send_email(to_email, subject, body):
-    smtp_server = "smtp.gmail.com"
-    smtp_port = 587
-    from_email = "your_email@gmail.com"
-    password = "your_app_password"  # Not your real Gmail password
+    # Use environment variables for SMTP configuration
+    smtp_server = os.getenv("SMTP_SERVER", "smtp.gmail.com")
+    smtp_port = int(os.getenv("SMTP_PORT", "587"))
+    from_email = os.getenv("SMTP_FROM_EMAIL", "")
+    password = os.getenv("SMTP_PASSWORD", "")
+
+    if not from_email or not password:
+        flash("Email configuration not set up. Please configure SMTP settings.", "error")
+        return False
 
     msg = MIMEText(body)
     msg["Subject"] = subject
@@ -366,8 +438,11 @@ def send_email(to_email, subject, body):
             server.login(from_email, password)
             server.send_message(msg)
             print("📧 Email sent to", to_email)
+            return True
     except Exception as e:
         print("❌ Email error:", e)
+        flash(f"Failed to send email: {str(e)}", "error")
+        return False
 
 
 AUTH_TEMPLATE = """
@@ -422,6 +497,7 @@ THEME_HEADER = """
   --success: #10b981;
   --danger: #ef4444;
   --warning: #f59e0b;
+  --info: #06b6d4;
   --shadow: 0 1px 3px 0 rgb(0 0 0 / 0.1), 0 1px 2px -1px rgb(0 0 0 / 0.1);
   --shadow-lg: 0 10px 15px -3px rgb(0 0 0 / 0.1), 0 4px 6px -4px rgb(0 0 0 / 0.1);
 }
@@ -436,6 +512,7 @@ body.dark {
   --success: #34d399;
   --danger: #f87171;
   --warning: #fbbf24;
+  --info: #22d3ee;
 }
 * { box-sizing: border-box; }
 body { 
@@ -615,7 +692,66 @@ tr:hover { background: var(--bg); }
   transform: scale(1.2); 
   margin: 0;
 }
+.flash-messages {
+  position: fixed;
+  top: 80px;
+  right: 20px;
+  z-index: 1000;
+  max-width: 400px;
+}
+.flash-message {
+  padding: 16px 20px;
+  margin-bottom: 12px;
+  border-radius: 8px;
+  box-shadow: var(--shadow-lg);
+  animation: slideIn 0.3s ease-out;
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.flash-success {
+  background: var(--success);
+  color: white;
+}
+.flash-error {
+  background: var(--danger);
+  color: white;
+}
+.flash-warning {
+  background: var(--warning);
+  color: white;
+}
+.flash-info {
+  background: var(--info);
+  color: white;
+}
+.flash-close {
+  background: none;
+  border: none;
+  color: inherit;
+  font-size: 18px;
+  cursor: pointer;
+  padding: 0;
+  margin-left: auto;
+}
+@keyframes slideIn {
+  from { transform: translateX(100%); opacity: 0; }
+  to { transform: translateX(0); opacity: 1; }
+}
 </style>
+<div class="flash-messages" id="flashMessages">
+  {% with messages = get_flashed_messages(with_categories=true) %}
+    {% if messages %}
+      {% for category, message in messages %}
+        <div class="flash-message flash-{{ category }}">
+          <span>{{ message }}</span>
+          <button class="flash-close" onclick="this.parentElement.remove()">×</button>
+        </div>
+      {% endfor %}
+    {% endif %}
+  {% endwith %}
+</div>
 <script>
 document.addEventListener('DOMContentLoaded', () => {
   const btn = document.createElement('button');
@@ -798,26 +934,65 @@ HIST_TEMPLATE = """
 """
 
 CAL_TEMPLATE = """
+<div class="container">
+  <div class="card">
+    <h1>📅 Calendar for {{name}}</h1>
+    <div class="nav-links">
+      <a href="/protocol/{{name}}">← Back to Tracking</a>
+      <a href="/protocol/{{name}}/history">📊 History</a>
+      <a href="/protocol/{{name}}/analytics">📈 Analytics</a>
+    </div>
+  </div>
+  
+  <div class="card">
+    <div id="calendar" style="min-height: 600px;"></div>
+  </div>
+  
+  <div class="card" id="logDetails" style="display: none;">
+    <h3>📋 Day Details</h3>
+    <div id="logContent"></div>
+  </div>
+</div>
+
 <link href="https://cdn.jsdelivr.net/npm/fullcalendar@6.1.10/main.min.css" rel="stylesheet">
 <script src="https://cdn.jsdelivr.net/npm/fullcalendar@6.1.10/main.min.js"></script>
-<a href="/protocol/{{name}}">← Back</a>
-<div id="calendar"></div><div id="logDetails"></div>
 <script>
 document.addEventListener('DOMContentLoaded', function() {
-  const calendar = new FullCalendar.Calendar(document.getElementById('calendar'), {
-    initialView: 'dayGridMonth',
-    events: '/protocol/{{name}}/logs.json',
-    eventClick(info) {
-      const e = info.event.extendedProps.entries;
-      let html = '<h3>' + info.event.startStr + '</h3><ul>';
-      for (const [k,v] of Object.entries(e)) {
-        html += `<li><b>${k}</b>: ${v.taken ? '✅' : '❌'} - ${v.note}</li>`;
-      }
-      html += '</ul>';
-      document.getElementById("logDetails").innerHTML = html;
-    }
-  });
-  calendar.render();
+  try {
+    const calendarEl = document.getElementById('calendar');
+    const calendar = new FullCalendar.Calendar(calendarEl, {
+      initialView: 'dayGridMonth',
+      headerToolbar: {
+        left: 'prev,next today',
+        center: 'title',
+        right: 'dayGridMonth,dayGridWeek'
+      },
+      events: '/protocol/{{name}}/logs.json',
+      eventClick: function(info) {
+        const entries = info.event.extendedProps.entries;
+        let html = '<div style="display: grid; gap: 8px;">';
+        for (const [compound, data] of Object.entries(entries)) {
+          const status = data.taken ? '✅ Taken' : '❌ Missed';
+          const note = data.note ? ` - ${data.note}` : '';
+          html += `<div style="padding: 8px; background: var(--bg); border-radius: 6px;">
+                     <strong>${compound}:</strong> ${status}${note}
+                   </div>`;
+        }
+        html += '</div>';
+        document.getElementById('logContent').innerHTML = html;
+        document.getElementById('logDetails').style.display = 'block';
+      },
+      height: 'auto'
+    });
+    calendar.render();
+  } catch (error) {
+    console.error('Calendar loading error:', error);
+    document.getElementById('calendar').innerHTML = 
+      '<div style="text-align: center; padding: 40px; color: var(--danger);">' +
+      '<h3>❌ Calendar Error</h3>' +
+      '<p>Unable to load calendar. Please check your internet connection.</p>' +
+      '</div>';
+  }
 });
 </script>
 """
