@@ -1658,28 +1658,28 @@ ADMIN_DASHBOARD_TEMPLATE = """
     <h1>👑 Admin Dashboard</h1>
     <p>Welcome, <strong>{{current_admin.username}}</strong> ({{current_admin.role}})!</p>
     <div class="nav-links">
-      <a href="/admin/logout">🚪 Logout</a>
-      <a href="/admin/2fa_setup">🔒 2FA Setup</a>
-      <a href="/admin/system_monitoring">📊 System Monitoring</a>
+      <a href="/admin/logout" title="Sign out of admin account">🚪 Logout</a>
+      <a href="/admin/2fa_setup" title="Configure two-factor authentication for your admin account">🔒 2FA Setup</a>
+      <a href="/admin/system_monitoring" title="View detailed system performance metrics and health monitoring">📊 System Monitoring</a>
     </div>
   </div>
 
   <div class="card">
     <h2>📊 System Overview</h2>
     <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 16px;">
-      <div style="background: var(--bg); padding: 16px; border-radius: 8px; text-align: center;">
+      <div style="background: var(--bg); padding: 16px; border-radius: 8px; text-align: center;" title="Total number of registered users in the system">
         <h3 style="margin: 0; color: var(--primary);">{{user_count}}</h3>
         <p style="margin: 8px 0 0 0;">Total Users</p>
       </div>
-      <div style="background: var(--bg); padding: 16px; border-radius: 8px; text-align: center;">
+      <div style="background: var(--bg); padding: 16px; border-radius: 8px; text-align: center;" title="Total number of admin accounts with access to this dashboard">
         <h3 style="margin: 0; color: var(--success);">{{admin_count}}</h3>
         <p style="margin: 8px 0 0 0;">Total Admins</p>
       </div>
-      <div style="background: var(--bg); padding: 16px; border-radius: 8px; text-align: center;">
+      <div style="background: var(--bg); padding: 16px; border-radius: 8px; text-align: center;" title="Total number of supplement protocols created by all users">
         <h3 style="margin: 0; color: var(--info);">{{protocol_count}}</h3>
         <p style="margin: 8px 0 0 0;">Total Protocols</p>
       </div>
-      <div style="background: var(--bg); padding: 16px; border-radius: 8px; text-align: center;">
+      <div style="background: var(--bg); padding: 16px; border-radius: 8px; text-align: center;" title="Current server CPU usage percentage">
         <h3 style="margin: 0; color: var(--warning);">{{system_stats.get('cpu_percent', 0)}}%</h3>
         <p style="margin: 8px 0 0 0;">CPU Usage</p>
       </div>
@@ -1692,57 +1692,57 @@ ADMIN_DASHBOARD_TEMPLATE = """
     <form method="POST" action="/admin/config">
       <div style="display: grid; gap: 16px;">
         <div class="form-group">
-          <label>App Name</label>
-          <input name="app_name" value="{{config.get('app_name', '')}}" required>
+          <label title="The display name of your application">App Name</label>
+          <input name="app_name" value="{{config.get('app_name', '')}}" required title="Enter the name that will appear in the app header and emails">
         </div>
         <div class="form-group">
-          <label>Max Protocols Per User</label>
-          <input name="max_protocols_per_user" type="number" value="{{config.get('max_protocols_per_user', '10')}}" required>
+          <label title="Maximum number of supplement protocols each user can create">Max Protocols Per User</label>
+          <input name="max_protocols_per_user" type="number" value="{{config.get('max_protocols_per_user', '10')}}" required title="Set the limit to prevent users from creating too many protocols">
         </div>
         <div class="form-group">
-          <label>Password Minimum Length</label>
-          <input name="password_min_length" type="number" value="{{config.get('password_min_length', '6')}}" required>
+          <label title="Minimum required password length for user accounts">Password Minimum Length</label>
+          <input name="password_min_length" type="number" value="{{config.get('password_min_length', '6')}}" required title="Enforce minimum password length for security">
         </div>
         <div class="form-group">
-          <label>Max Login Attempts</label>
-          <input name="max_login_attempts" type="number" value="{{config.get('max_login_attempts', '5')}}" required>
+          <label title="Number of failed login attempts before account lockout">Max Login Attempts</label>
+          <input name="max_login_attempts" type="number" value="{{config.get('max_login_attempts', '5')}}" required title="Prevent brute force attacks by limiting login attempts">
         </div>
         <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 16px;">
-          <label style="display: flex; align-items: center; gap: 8px;">
+          <label style="display: flex; align-items: center; gap: 8px;" title="Allow users to send themselves email reminders for their protocols">
             <input type="checkbox" name="email_reminders_enabled" {% if config.get('email_reminders_enabled') == 'true' %}checked{% endif %}>
             Email Reminders Enabled
           </label>
-          <label style="display: flex; align-items: center; gap: 8px;">
+          <label style="display: flex; align-items: center; gap: 8px;" title="Allow new users to register accounts">
             <input type="checkbox" name="registration_enabled" {% if config.get('registration_enabled') == 'true' %}checked{% endif %}>
             Registration Enabled
           </label>
-          <label style="display: flex; align-items: center; gap: 8px;">
+          <label style="display: flex; align-items: center; gap: 8px;" title="Allow users to export their data as CSV files">
             <input type="checkbox" name="data_export_enabled" {% if config.get('data_export_enabled') == 'true' %}checked{% endif %}>
             Data Export Enabled
           </label>
-          <label style="display: flex; align-items: center; gap: 8px;">
+          <label style="display: flex; align-items: center; gap: 8px;" title="Enable analytics and statistics features for users">
             <input type="checkbox" name="analytics_enabled" {% if config.get('analytics_enabled') == 'true' %}checked{% endif %}>
             Analytics Enabled
           </label>
-          <label style="display: flex; align-items: center; gap: 8px;">
+          <label style="display: flex; align-items: center; gap: 8px;" title="Put the application in maintenance mode (blocks user access)">
             <input type="checkbox" name="maintenance_mode" {% if config.get('maintenance_mode') == 'true' %}checked{% endif %}>
             Maintenance Mode
           </label>
-          <label style="display: flex; align-items: center; gap: 8px;">
+          <label style="display: flex; align-items: center; gap: 8px;" title="Require all users to have 2FA enabled">
             <input type="checkbox" name="require_2fa" {% if config.get('require_2fa') == 'true' %}checked{% endif %}>
             Require 2FA
           </label>
-          <label style="display: flex; align-items: center; gap: 8px;">
+          <label style="display: flex; align-items: center; gap: 8px;" title="Force users to set up 2FA before accessing the application">
             <input type="checkbox" name="force_2fa_setup" {% if config.get('force_2fa_setup') == 'true' %}checked{% endif %}>
             Force 2FA Setup
           </label>
-          <label style="display: flex; align-items: center; gap: 8px;">
+          <label style="display: flex; align-items: center; gap: 8px;" title="Require passwords to have uppercase, numbers, and special characters">
             <input type="checkbox" name="password_complexity" {% if config.get('password_complexity') == 'true' %}checked{% endif %}>
             Password Complexity
           </label>
         </div>
       </div>
-      <button type="submit" class="btn-success">💾 Save Configuration</button>
+      <button type="submit" class="btn-success" title="Save all configuration changes">💾 Save Configuration</button>
     </form>
   </div>
 
@@ -1751,28 +1751,28 @@ ADMIN_DASHBOARD_TEMPLATE = """
     <form method="POST" action="/admin/config">
       <div style="display: grid; gap: 16px;">
         <div class="form-group">
-          <label>SendGrid API Key</label>
+          <label title="API key from your SendGrid account for sending emails">SendGrid API Key</label>
           <input name="sendgrid_api_key" type="password" value="{{config.get('sendgrid_api_key', '')}}" 
-                 placeholder="Enter your SendGrid API key">
+                 placeholder="Enter your SendGrid API key" title="Get this from your SendGrid dashboard under Settings > API Keys">
         </div>
         <div class="form-group">
-          <label>From Email Address</label>
+          <label title="Email address that will appear as the sender">From Email Address</label>
           <input name="sendgrid_from_email" type="email" value="{{config.get('sendgrid_from_email', '')}}" 
-                 placeholder="verified@yourdomain.com">
+                 placeholder="verified@yourdomain.com" title="This must be a verified sender in your SendGrid account">
         </div>
       </div>
-      <button type="submit" class="btn-primary">📧 Save SendGrid Configuration</button>
+      <button type="submit" class="btn-primary" title="Save email configuration settings">📧 Save SendGrid Configuration</button>
     </form>
     
     <div style="margin-top: 24px; padding: 16px; background: var(--bg); border-radius: 8px; border: 1px solid var(--border);">
       <h4 style="margin: 0 0 16px 0; color: var(--primary);">🧪 Test Email Configuration</h4>
       <form method="POST" action="/admin/test_email" style="display: flex; gap: 12px; align-items: end;">
         <div style="flex: 1;">
-          <label style="display: block; margin-bottom: 8px; font-weight: 500;">Test Email Address</label>
+          <label style="display: block; margin-bottom: 8px; font-weight: 500;" title="Enter an email address to test the configuration">Test Email Address</label>
           <input name="test_email" type="email" placeholder="test@example.com" required 
-                 style="width: 100%; margin: 0;">
+                 style="width: 100%; margin: 0;" title="We'll send a test email to this address">
         </div>
-        <button type="submit" class="btn-success" style="margin: 0;">🚀 Send Test Email</button>
+        <button type="submit" class="btn-success" style="margin: 0;" title="Send a test email to verify your SendGrid configuration">🚀 Send Test Email</button>
       </form>
     </div>
   </div>
@@ -1781,7 +1781,7 @@ ADMIN_DASHBOARD_TEMPLATE = """
   <div class="card">
     <h2>👤 User Management</h2>
     <div class="nav-links" style="margin-bottom: 24px;">
-      <a href="/admin/users" class="btn-primary">👥 Manage Users</a>
+      <a href="/admin/users" class="btn-primary" title="View and manage all user accounts, disable/enable users, reset 2FA, and modify user information">👥 Manage Users</a>
     </div>
     <p>Manage user accounts, disable/enable users, reset 2FA, and modify user information.</p>
   </div>
@@ -1790,19 +1790,19 @@ ADMIN_DASHBOARD_TEMPLATE = """
   <div class="card">
     <h2>👑 Admin Management</h2>
     <div class="nav-links" style="margin-bottom: 24px;">
-      <a href="/admin/register" class="btn-primary">➕ Add New Admin</a>
+      <a href="/admin/register" class="btn-primary" title="Create a new admin account with specified role and permissions">➕ Add New Admin</a>
     </div>
 
     {% if admins %}
       <table>
         <thead>
           <tr>
-            <th>Username</th>
-            <th>Role</th>
-            <th>Email</th>
-            <th>Status</th>
-            <th>Last Login</th>
-            <th>Actions</th>
+            <th title="Admin account username">Username</th>
+            <th title="Admin permission level: Super Admin (full access), Admin (most features), Operator (limited access)">Role</th>
+            <th title="Email address for the admin account">Email</th>
+            <th title="Whether the admin account is active or disabled">Status</th>
+            <th title="Last time this admin logged into the system">Last Login</th>
+            <th title="Available actions for this admin account">Actions</th>
           </tr>
         </thead>
         <tbody>
@@ -1810,13 +1810,13 @@ ADMIN_DASHBOARD_TEMPLATE = """
           <tr>
             <td><strong>{{admin[0]}}</strong></td>
             <td>
-              <span class="status-badge {{ 'status-success' if admin[1] == 'Super Admin' else 'status-info' if admin[1] == 'Admin' else 'status-warning' }}">
+              <span class="status-badge {{ 'status-success' if admin[1] == 'Super Admin' else 'status-info' if admin[1] == 'Admin' else 'status-warning' }}" title="{{admin[1]}} - {{ 'Full system access' if admin[1] == 'Super Admin' else 'Most admin features' if admin[1] == 'Admin' else 'Limited admin access' }}">
                 {{admin[1]}}
               </span>
             </td>
             <td>{{admin[2] or 'Not set'}}</td>
             <td>
-              <span class="status-badge {{ 'status-danger' if admin[4] else 'status-success' }}">
+              <span class="status-badge {{ 'status-danger' if admin[4] else 'status-success' }}" title="{{ 'This admin account is disabled and cannot log in' if admin[4] else 'This admin account is active and can log in' }}">
                 {{ 'Disabled' if admin[4] else 'Active' }}
               </span>
             </td>
@@ -1826,7 +1826,7 @@ ADMIN_DASHBOARD_TEMPLATE = """
               <div style="display: flex; gap: 4px; flex-wrap: wrap;">
                 <form method="POST" action="/admin/delete_admin/{{admin[0]}}" style="display: inline;"
                       onsubmit="return confirm('Delete admin {{admin[0]}}? This cannot be undone.')">
-                  <button type="submit" class="btn-danger btn-small">🗑️ Delete</button>
+                  <button type="submit" class="btn-danger btn-small" title="Permanently delete this admin account">🗑️ Delete</button>
                 </form>
               </div>
               {% endif %}
@@ -1845,19 +1845,19 @@ ADMIN_DASHBOARD_TEMPLATE = """
       <table>
         <thead>
           <tr>
-            <th>Type</th>
-            <th>Message</th>
-            <th>Severity</th>
-            <th>Time</th>
+            <th title="Category of system event or activity">Type</th>
+            <th title="Detailed description of what happened">Message</th>
+            <th title="Importance level: info (normal), warning (potential issue), error (requires attention)">Severity</th>
+            <th title="When this event occurred">Time</th>
           </tr>
         </thead>
         <tbody>
           {% for log in recent_logs %}
           <tr>
-            <td>{{log[0]}}</td>
-            <td>{{log[1]}}</td>
+            <td title="{{log[0]}}">{{log[0]}}</td>
+            <td title="{{log[1]}}">{{log[1]}}</td>
             <td>
-              <span class="status-badge {{ 'status-danger' if log[2] == 'error' else 'status-warning' if log[2] == 'warning' else 'status-success' }}">
+              <span class="status-badge {{ 'status-danger' if log[2] == 'error' else 'status-warning' if log[2] == 'warning' else 'status-success' }}" title="{{ 'Critical error that needs immediate attention' if log[2] == 'error' else 'Warning that should be monitored' if log[2] == 'warning' else 'Normal system activity' }}">
                 {{log[2]}}
               </span>
             </td>
