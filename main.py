@@ -770,7 +770,6 @@ def logout():
 @login_required
 def admin_logout():
     logout_user()
-    ```python
     return redirect(url_for("admin_login"))
 
 @app.route("/admin/dashboard")
