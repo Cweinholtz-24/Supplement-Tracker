@@ -1,3 +1,4 @@
+
 //
 //  ProtocolModel.swift
 //  SupplementTracker
@@ -58,18 +59,36 @@ struct UserProfile: Codable {
     let protocolCount: Int
 }
 
-struct ProtocolLogEntry: Codable {
-    let id: String
+struct CalendarEvent: Identifiable, Codable {
+    let id = UUID()
     let date: String
-    let compounds: [String: CompoundLog]
-    let mood: String?
-    let energy: String?
-    let sideEffects: String?
-    let weight: String?
-    let generalNotes: String?
+    let taken: Int
+    let total: Int
+    let missed: Int
+    let completed: Bool
+    let entries: [String: CompoundEntry]
 }
 
-struct CompoundLog: Codable {
-    let taken: Bool
-    let note: String
+struct ReminderSettings: Codable {
+    let enabled: Bool
+    let time: String
+    let protocols: [String]
+    let frequency: String // daily, weekly, etc.
+}
+
+struct HealthMetrics: Codable {
+    let date: String
+    let weight: Double?
+    let mood: Int? // 1-10 scale
+    let energy: Int? // 1-10 scale
+    let sleepHours: Double?
+    let notes: String?
+}
+
+struct ExportData: Codable {
+    let protocols: [ProtocolModel]
+    let logs: [ProtocolLog]
+    let profile: UserProfile
+    let exportDate: String
+    let version: String
 }

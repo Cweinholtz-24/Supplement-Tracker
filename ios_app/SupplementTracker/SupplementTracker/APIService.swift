@@ -9,6 +9,7 @@
 import Foundation
 import SwiftUI
 import Combine
+import UserNotifications
 
 class APIService: ObservableObject {
     static let shared = APIService()
@@ -18,17 +19,54 @@ class APIService: ObservableObject {
     
     @Published var isAuthenticated = false
     @Published var authToken: String?
+    @Published var notifications: [NotificationModel] = []
+    @Published var requires2FA = false
+    @Published var pendingUsername: String?
     
     private var cancellables = Set<AnyCancellable>()
     
     init() {
         // Load saved auth token if exists
         loadAuthToken()
+        setupNotifications()
+    }
+    
+    // MARK: - Notifications Setup
+    
+    private func setupNotifications() {
+        UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .badge, .sound]) { granted, error in
+            if granted {
+                print("Notification permission granted")
+                DispatchQueue.main.async {
+                    UIApplication.shared.registerForRemoteNotifications()
+                }
+            }
+        }
+    }
+    
+    func scheduleReminderNotification(for protocolName: String, at time: Date) {
+        let content = UNMutableNotificationContent()
+        content.title = "Supplement Reminder"
+        content.body = "Time to log your \(protocolName) protocol!"
+        content.sound = .default
+        content.badge = 1
+        
+        let calendar = Calendar.current
+        let components = calendar.dateComponents([.hour, .minute], from: time)
+        let trigger = UNCalendarNotificationTrigger(dateMatching: components, repeats: true)
+        
+        let request = UNNotificationRequest(identifier: "protocol-\(protocolName)", content: content, trigger: trigger)
+        
+        UNUserNotificationCenter.current().add(request) { error in
+            if let error = error {
+                print("Error scheduling notification: \(error)")
+            }
+        }
     }
     
     // MARK: - Authentication
     
-    func login(username: String, password: String, completion: @escaping (Result<Void, Error>) -> Void) {
+    func login(username: String, password: String, completion: @escaping (Result<LoginResponse, Error>) -> Void) {
         guard let url = URL(string: "\(baseURL)/api/login") else {
             completion(.failure(APIError.invalidURL))
             return
@@ -42,6 +80,71 @@ class APIService: ObservableObject {
         
         do {
             request.httpBody = try JSONEncoder().encode(loginData)
+        } catch {
+            completion(.failure(error))
+            return
+        }
+        
+        URLSession.shared.dataTask(with: request) { data, response, error in
+            if let error = error {
+                completion(.failure(error))
+                return
+            }
+            
+            guard let httpResponse = response as? HTTPURLResponse,
+                  let data = data else {
+                completion(.failure(APIError.invalidResponse))
+                return
+            }
+            
+            if httpResponse.statusCode == 200 {
+                do {
+                    let loginResponse = try JSONDecoder().decode(LoginResponse.self, from: data)
+                    
+                    if loginResponse.requires2FA {
+                        DispatchQueue.main.async {
+                            self.requires2FA = true
+                            self.pendingUsername = username
+                        }
+                        completion(.success(loginResponse))
+                    } else {
+                        // Save session cookies for future requests
+                        if let headerFields = httpResponse.allHeaderFields as? [String: String],
+                           let url = httpResponse.url {
+                            let cookies = HTTPCookie.cookies(withResponseHeaderFields: headerFields, for: url)
+                            HTTPCookieStorage.shared.setCookies(cookies, for: url, mainDocumentURL: nil)
+                        }
+                        
+                        DispatchQueue.main.async {
+                            self.isAuthenticated = true
+                            self.requires2FA = false
+                            self.saveAuthToken(username)
+                        }
+                        completion(.success(loginResponse))
+                    }
+                } catch {
+                    completion(.failure(error))
+                }
+            } else {
+                completion(.failure(APIError.loginFailed))
+            }
+        }.resume()
+    }
+    
+    func verify2FA(code: String, completion: @escaping (Result<Void, Error>) -> Void) {
+        guard let url = URL(string: "\(baseURL)/api/verify_2fa") else {
+            completion(.failure(APIError.invalidURL))
+            return
+        }
+        
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        
+        let twoFAData = TwoFARequest(code: code)
+        
+        do {
+            request.httpBody = try JSONEncoder().encode(twoFAData)
         } catch {
             completion(.failure(error))
             return
@@ -68,11 +171,15 @@ class APIService: ObservableObject {
                 
                 DispatchQueue.main.async {
                     self.isAuthenticated = true
-                    self.saveAuthToken(username) // Save username instead of dummy token
+                    self.requires2FA = false
+                    if let username = self.pendingUsername {
+                        self.saveAuthToken(username)
+                    }
+                    self.pendingUsername = nil
                 }
                 completion(.success(()))
             } else {
-                completion(.failure(APIError.loginFailed))
+                completion(.failure(APIError.twoFAFailed))
             }
         }.resume()
     }
@@ -80,7 +187,16 @@ class APIService: ObservableObject {
     func logout() {
         authToken = nil
         isAuthenticated = false
+        requires2FA = false
+        pendingUsername = nil
         clearAuthToken()
+        
+        // Clear cookies
+        if let cookies = HTTPCookieStorage.shared.cookies {
+            for cookie in cookies {
+                HTTPCookieStorage.shared.deleteCookie(cookie)
+            }
+        }
     }
     
     // MARK: - Protocols
@@ -233,6 +349,127 @@ class APIService: ObservableObject {
         }.resume()
     }
     
+    // MARK: - Analytics
+    
+    func fetchProtocolAnalytics(protocolId: String, completion: @escaping (Result<AnalyticsModel, Error>) -> Void) {
+        guard let url = URL(string: "\(baseURL)/api/protocols/\(protocolId)/analytics") else {
+            completion(.failure(APIError.invalidURL))
+            return
+        }
+        
+        var request = URLRequest(url: url)
+        request.httpMethod = "GET"
+        
+        URLSession.shared.dataTask(with: request) { data, response, error in
+            if let error = error {
+                completion(.failure(error))
+                return
+            }
+            
+            guard let httpResponse = response as? HTTPURLResponse,
+                  let data = data else {
+                completion(.failure(APIError.invalidResponse))
+                return
+            }
+            
+            if httpResponse.statusCode == 401 {
+                DispatchQueue.main.async {
+                    self.isAuthenticated = false
+                    self.clearAuthToken()
+                }
+                completion(.failure(APIError.loginFailed))
+                return
+            }
+            
+            if httpResponse.statusCode == 200 {
+                do {
+                    let analytics = try JSONDecoder().decode(AnalyticsModel.self, from: data)
+                    completion(.success(analytics))
+                } catch {
+                    completion(.failure(error))
+                }
+            } else {
+                completion(.failure(APIError.requestFailed))
+            }
+        }.resume()
+    }
+    
+    // MARK: - Notifications
+    
+    func fetchNotifications(completion: @escaping (Result<[NotificationModel], Error>) -> Void) {
+        guard let url = URL(string: "\(baseURL)/api/notifications") else {
+            completion(.failure(APIError.invalidURL))
+            return
+        }
+        
+        var request = URLRequest(url: url)
+        request.httpMethod = "GET"
+        
+        URLSession.shared.dataTask(with: request) { data, response, error in
+            if let error = error {
+                completion(.failure(error))
+                return
+            }
+            
+            guard let httpResponse = response as? HTTPURLResponse,
+                  let data = data else {
+                completion(.failure(APIError.invalidResponse))
+                return
+            }
+            
+            if httpResponse.statusCode == 401 {
+                DispatchQueue.main.async {
+                    self.isAuthenticated = false
+                    self.clearAuthToken()
+                }
+                completion(.failure(APIError.loginFailed))
+                return
+            }
+            
+            if httpResponse.statusCode == 200 {
+                do {
+                    let notifications = try JSONDecoder().decode([NotificationModel].self, from: data)
+                    DispatchQueue.main.async {
+                        self.notifications = notifications
+                    }
+                    completion(.success(notifications))
+                } catch {
+                    completion(.failure(error))
+                }
+            } else {
+                completion(.failure(APIError.requestFailed))
+            }
+        }.resume()
+    }
+    
+    func markNotificationAsRead(notificationId: Int, completion: @escaping (Result<Void, Error>) -> Void) {
+        guard let url = URL(string: "\(baseURL)/api/notifications/\(notificationId)/read") else {
+            completion(.failure(APIError.invalidURL))
+            return
+        }
+        
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        
+        URLSession.shared.dataTask(with: request) { data, response, error in
+            if let error = error {
+                completion(.failure(error))
+                return
+            }
+            
+            guard let httpResponse = response as? HTTPURLResponse else {
+                completion(.failure(APIError.invalidResponse))
+                return
+            }
+            
+            if httpResponse.statusCode == 200 {
+                completion(.success(()))
+            } else {
+                completion(.failure(APIError.requestFailed))
+            }
+        }.resume()
+    }
+    
     // MARK: - Auth Token Management
     
     private func saveAuthToken(_ token: String) {
@@ -259,6 +496,27 @@ struct LoginRequest: Codable {
     let password: String
 }
 
+struct LoginResponse: Codable {
+    let success: Bool?
+    let requires2FA: Bool?
+    let message: String
+    let user: UserModel?
+    let token: String?
+    
+    enum CodingKeys: String, CodingKey {
+        case success, message, user, token
+        case requires2FA = "requires_2fa"
+    }
+}
+
+struct UserModel: Codable {
+    let username: String
+}
+
+struct TwoFARequest: Codable {
+    let code: String
+}
+
 struct CreateProtocolRequest: Codable {
     let name: String
     let compounds: [String]
@@ -269,11 +527,35 @@ struct ProtocolLogRequest: Codable {
     let notes: [String: String]
 }
 
+struct AnalyticsModel: Codable {
+    let totalDays: Int
+    let adherence: Double
+    let streak: Int
+    let missedDays: Int
+    let compoundStats: [String: CompoundStats]
+}
+
+struct CompoundStats: Codable {
+    let taken: Int
+    let missed: Int
+    let percentage: Double
+}
+
+struct NotificationModel: Identifiable, Codable {
+    let id: Int
+    let title: String
+    let message: String
+    let type: String
+    let isRead: Bool
+    let createdAt: String
+}
+
 enum APIError: Error {
     case invalidURL
     case invalidResponse
     case noData
     case loginFailed
+    case twoFAFailed
     case requestFailed
     
     var localizedDescription: String {
@@ -286,6 +568,8 @@ enum APIError: Error {
             return "No data received"
         case .loginFailed:
             return "Login failed"
+        case .twoFAFailed:
+            return "2FA verification failed"
         case .requestFailed:
             return "Request failed"
         }

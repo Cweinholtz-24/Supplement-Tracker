@@ -3119,37 +3119,80 @@ EDIT_ADMIN_TEMPLATE = """
 # API Endpoints for iOS App
 @app.route("/api/login", methods=["POST"])
 def api_login():
-    """API endpoint for iOS app login"""
+    """API endpoint for iOS app login - first step"""
     data = request.get_json()
     if not data or not data.get('username') or not data.get('password'):
         return jsonify({"error": "Username and password required"}), 400
     
     username = data['username'].strip().lower()
     password = data['password']
+    client_ip = request.remote_addr
     
     with get_db_connection() as conn:
         cursor = conn.cursor()
-        cursor.execute("SELECT password_hash, disabled FROM users WHERE username = ?", (username,))
+        cursor.execute("SELECT password_hash, disabled, login_attempts FROM users WHERE username = ?", (username,))
         row = cursor.fetchone()
         
         if not row:
+            log_system_event('api_login_failed', f'API login attempt for non-existent user: {username}', 'warning', ip_address=client_ip)
             return jsonify({"error": "Invalid credentials"}), 401
         
         if row[1]:  # disabled
             return jsonify({"error": "Account disabled"}), 401
+            
+        max_attempts = int(get_config_value('max_login_attempts', '5'))
+        if row[2] >= max_attempts:
+            return jsonify({"error": "Account temporarily locked"}), 401
         
         if not check_password_hash(row[0], password):
+            cursor.execute("UPDATE users SET login_attempts = login_attempts + 1 WHERE username = ?", (username,))
+            conn.commit()
+            log_system_event('api_login_failed', f'Invalid password for API user: {username}', 'warning', ip_address=client_ip)
             return jsonify({"error": "Invalid credentials"}), 401
         
-        # Store username in session for API calls (simple approach)
-        session['api_username'] = username
+        # Password is correct, now require 2FA
+        session['pending_api_user'] = username
         
         return jsonify({
-            "success": True,
-            "message": "Login successful",
-            "user": {"username": username},
-            "token": f"session_{username}"  # Simple session-based token
+            "requires_2fa": True,
+            "message": "2FA verification required"
         }), 200
+
+@app.route("/api/verify_2fa", methods=["POST"])
+def api_verify_2fa():
+    """API endpoint for 2FA verification"""
+    data = request.get_json()
+    if not data or not data.get('code'):
+        return jsonify({"error": "2FA code required"}), 400
+    
+    username = session.get('pending_api_user')
+    if not username:
+        return jsonify({"error": "No pending authentication"}), 401
+    
+    code = data['code']
+    client_ip = request.remote_addr
+    
+    user_data = load_data(username)
+    if not pyotp.TOTP(user_data["2fa_secret"]).verify(code):
+        return jsonify({"error": "Invalid 2FA code"}), 401
+    
+    # 2FA verified, complete login
+    with get_db_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute("UPDATE users SET last_login = CURRENT_TIMESTAMP, login_attempts = 0, ip_address = ? WHERE username = ?", (client_ip, username))
+        conn.commit()
+    
+    session['api_username'] = username
+    session.pop('pending_api_user', None)
+    
+    log_system_event('api_login_success', f'API user logged in: {username}', 'info', ip_address=client_ip)
+    
+    return jsonify({
+        "success": True,
+        "message": "Login successful",
+        "user": {"username": username},
+        "token": f"session_{username}"
+    }), 200
 
 @app.route("/api/protocols", methods=["GET"])
 def api_get_protocols():
@@ -3301,15 +3344,198 @@ def api_get_protocol_history(protocol_id):
 @app.route("/api/user/profile", methods=["GET"])
 def api_get_user_profile():
     """API endpoint to get user profile"""
-    # Return dummy profile data
-    profile = {
-        "username": "testuser",
-        "email": "test@example.com",
-        "createdAt": "2024-01-01T00:00:00Z",
-        "protocolCount": 2
-    }
+    username = session.get('api_username')
+    if not username:
+        return jsonify({"error": "Not authenticated"}), 401
     
-    return jsonify(profile), 200
+    try:
+        with get_db_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute("SELECT username, email, created_at FROM users WHERE username = ?", (username,))
+            user_row = cursor.fetchone()
+            
+            if not user_row:
+                return jsonify({"error": "User not found"}), 404
+            
+            cursor.execute("SELECT COUNT(*) FROM protocols WHERE user_id = (SELECT id FROM users WHERE username = ?)", (username,))
+            protocol_count = cursor.fetchone()[0]
+            
+            profile = {
+                "username": user_row[0],
+                "email": user_row[1] or "",
+                "createdAt": user_row[2],
+                "protocolCount": protocol_count
+            }
+            
+            return jsonify(profile), 200
+    except Exception as e:
+        return jsonify({"error": f"Failed to fetch profile: {str(e)}"}), 500
+
+@app.route("/api/notifications", methods=["GET"])
+def api_get_notifications():
+    """API endpoint to get user notifications"""
+    username = session.get('api_username')
+    if not username:
+        return jsonify({"error": "Not authenticated"}), 401
+    
+    try:
+        with get_db_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute('''
+                SELECT id, title, message, type, is_read, created_at
+                FROM notifications 
+                WHERE user_id = (SELECT id FROM users WHERE username = ?)
+                ORDER BY created_at DESC LIMIT 20
+            ''', (username,))
+            
+            notifications = []
+            for row in cursor.fetchall():
+                notifications.append({
+                    "id": row[0],
+                    "title": row[1],
+                    "message": row[2],
+                    "type": row[3],
+                    "isRead": bool(row[4]),
+                    "createdAt": row[5]
+                })
+            
+            return jsonify(notifications), 200
+    except Exception as e:
+        return jsonify({"error": f"Failed to fetch notifications: {str(e)}"}), 500
+
+@app.route("/api/notifications/<int:notification_id>/read", methods=["POST"])
+def api_mark_notification_read(notification_id):
+    """API endpoint to mark notification as read"""
+    username = session.get('api_username')
+    if not username:
+        return jsonify({"error": "Not authenticated"}), 401
+    
+    try:
+        with get_db_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute('''
+                UPDATE notifications SET is_read = TRUE 
+                WHERE id = ? AND user_id = (SELECT id FROM users WHERE username = ?)
+            ''', (notification_id, username))
+            conn.commit()
+            
+            return jsonify({"success": True}), 200
+    except Exception as e:
+        return jsonify({"error": f"Failed to mark notification as read: {str(e)}"}), 500
+
+@app.route("/api/protocols/<protocol_id>/analytics", methods=["GET"])
+def api_get_protocol_analytics(protocol_id):
+    """API endpoint to get protocol analytics"""
+    username = session.get('api_username')
+    if not username:
+        return jsonify({"error": "Not authenticated"}), 401
+    
+    try:
+        data = load_data(username)
+        
+        # Find matching protocol
+        matching_protocol = None
+        for pname in data.get("protocols", {}):
+            if pname.replace(" ", "_").lower() == protocol_id:
+                matching_protocol = pname
+                break
+        
+        if not matching_protocol:
+            return jsonify({"error": "Protocol not found"}), 404
+        
+        prot = data["protocols"][matching_protocol]
+        logs = prot["logs"]
+        
+        total_days = len(logs)
+        if total_days == 0:
+            return jsonify({
+                "totalDays": 0,
+                "adherence": 0,
+                "streak": 0,
+                "missedDays": 0,
+                "compoundStats": {}
+            }), 200
+        
+        compound_stats = {}
+        for compound in prot["compounds"]:
+            taken_count = sum(1 for day_log in logs.values() 
+                             if day_log.get(compound, {}).get("taken", False))
+            compound_stats[compound] = {
+                "taken": taken_count,
+                "missed": total_days - taken_count,
+                "percentage": round((taken_count / total_days) * 100, 1)
+            }
+        
+        total_possible = total_days * len(prot["compounds"])
+        total_taken = sum(sum(1 for entry in day_log.values() if entry.get("taken", False)) 
+                         for day_log in logs.values())
+        overall_adherence = round((total_taken / total_possible) * 100, 1) if total_possible > 0 else 0
+        
+        sorted_dates = sorted(logs.keys(), reverse=True)
+        current_streak = 0
+        for date_str in sorted_dates:
+            day_log = logs[date_str]
+            all_taken = all(entry.get("taken", False) for entry in day_log.values())
+            if all_taken:
+                current_streak += 1
+            else:
+                break
+        
+        missed_days = sum(1 for day_log in logs.values() 
+                         if not all(entry.get("taken", False) for entry in day_log.values()))
+        
+        analytics = {
+            "totalDays": total_days,
+            "adherence": overall_adherence,
+            "streak": current_streak,
+            "missedDays": missed_days,
+            "compoundStats": compound_stats
+        }
+        
+        return jsonify(analytics), 200
+    except Exception as e:
+        return jsonify({"error": f"Failed to fetch analytics: {str(e)}"}), 500
+
+@app.route("/api/protocols/<protocol_id>/calendar", methods=["GET"])
+def api_get_protocol_calendar(protocol_id):
+    """API endpoint to get protocol calendar data"""
+    username = session.get('api_username')
+    if not username:
+        return jsonify({"error": "Not authenticated"}), 401
+    
+    try:
+        data = load_data(username)
+        
+        # Find matching protocol
+        matching_protocol = None
+        for pname in data.get("protocols", {}):
+            if pname.replace(" ", "_").lower() == protocol_id:
+                matching_protocol = pname
+                break
+        
+        if not matching_protocol:
+            return jsonify({"error": "Protocol not found"}), 404
+        
+        prot = data["protocols"][matching_protocol]
+        calendar_events = []
+        
+        for date_str, entries in prot["logs"].items():
+            taken_count = sum(1 for e in entries.values() if e.get("taken"))
+            total = len(entries)
+            missed = total - taken_count
+            
+            calendar_events.append({
+                "date": date_str,
+                "taken": taken_count,
+                "total": total,
+                "missed": missed,
+                "completed": missed == 0,
+                "entries": entries
+            })
+        
+        return jsonify(calendar_events), 200
+    except Exception as e:
+        return jsonify({"error": f"Failed to fetch calendar data: {str(e)}"}), 500
 
 @app.route("/manifest.json")
 def manifest():
