@@ -37,12 +37,19 @@ def user_file(username=None):
     return USER_DIR / f"{u}.json"
 
 def load_data(username=None):
-    with open(user_file(username)) as f:
-        return json.load(f)
+    try:
+        with open(user_file(username)) as f:
+            return json.load(f)
+    except (FileNotFoundError, json.JSONDecodeError):
+        return {"password": "", "2fa_secret": "", "protocols": {}, "email": ""}
 
 def save_data(data, username=None):
-    with open(user_file(username), "w") as f:
-        json.dump(data, f, indent=2)
+    try:
+        with open(user_file(username), "w") as f:
+            json.dump(data, f, indent=2)
+    except Exception as e:
+        print(f"Error saving data: {e}")
+        raise
 
 @app.route("/register", methods=["GET", "POST"])
 def register():
@@ -129,14 +136,19 @@ def dashboard():
 @app.route("/create", methods=["POST"])
 @login_required
 def create_protocol():
-    name = request.form["protocol_name"]
+    name = request.form.get("protocol_name", "").strip()
+    if not name:
+        return "Protocol name is required", 400
+    if len(name) > 50:
+        return "Protocol name too long", 400
+    
     data = load_data()
     if name not in data["protocols"]:
         data["protocols"][name] = {
             "compounds": ["FOXO4-DRI", "Fisetin", "Quercetin"],
             "logs": {}
         }
-    save_data(data)
+        save_data(data)
     return redirect(url_for("tracker", name=name))
 
 @app.route("/delete_protocol/<name>", methods=["POST"])
@@ -404,4 +416,4 @@ document.addEventListener('DOMContentLoaded', function() {
 """
 
 if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=3000)
+    app.run(host="0.0.0.0", port=5000)
