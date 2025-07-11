@@ -129,6 +129,63 @@ class APIService: ObservableObject {
         }.resume()
     }
     
+    func createProtocol(name: String, compounds: [String], completion: @escaping (Result<ProtocolModel, Error>) -> Void) {
+        guard let url = URL(string: "\(baseURL)/api/protocols") else {
+            completion(.failure(APIError.invalidURL))
+            return
+        }
+        
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        
+        let protocolData = CreateProtocolRequest(name: name, compounds: compounds)
+        
+        do {
+            request.httpBody = try JSONEncoder().encode(protocolData)
+        } catch {
+            completion(.failure(error))
+            return
+        }
+        
+        URLSession.shared.dataTask(with: request) { data, response, error in
+            if let error = error {
+                completion(.failure(error))
+                return
+            }
+            
+            guard let httpResponse = response as? HTTPURLResponse else {
+                completion(.failure(APIError.invalidResponse))
+                return
+            }
+            
+            if httpResponse.statusCode == 401 {
+                DispatchQueue.main.async {
+                    self.isAuthenticated = false
+                    self.clearAuthToken()
+                }
+                completion(.failure(APIError.loginFailed))
+                return
+            }
+            
+            guard let data = data else {
+                completion(.failure(APIError.noData))
+                return
+            }
+            
+            if httpResponse.statusCode == 201 {
+                do {
+                    let protocol = try JSONDecoder().decode(ProtocolModel.self, from: data)
+                    completion(.success(protocol))
+                } catch {
+                    completion(.failure(error))
+                }
+            } else {
+                completion(.failure(APIError.requestFailed))
+            }
+        }.resume()
+    }
+    
     func saveProtocolLog(protocolId: String, compounds: [String: Bool], notes: [String: String], completion: @escaping (Result<Void, Error>) -> Void) {
         guard let url = URL(string: "\(baseURL)/api/protocols/\(protocolId)/log") else {
             completion(.failure(APIError.invalidURL))
@@ -200,6 +257,11 @@ class APIService: ObservableObject {
 struct LoginRequest: Codable {
     let username: String
     let password: String
+}
+
+struct CreateProtocolRequest: Codable {
+    let name: String
+    let compounds: [String]
 }
 
 struct ProtocolLogRequest: Codable {

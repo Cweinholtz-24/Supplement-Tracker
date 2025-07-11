@@ -3154,9 +3154,9 @@ def api_login():
 @app.route("/api/protocols", methods=["GET"])
 def api_get_protocols():
     """API endpoint to get user protocols"""
-    # For this demo, we'll use a hardcoded user since we're bypassing auth
-    # In production, you'd get username from JWT token
-    username = "demo_user"  # You can change this to any existing username in your system
+    username = session.get('api_username')
+    if not username:
+        return jsonify({"error": "Not authenticated"}), 401
     
     try:
         data = load_data(username)
@@ -3167,12 +3167,60 @@ def api_get_protocols():
                 "id": protocol_name.replace(" ", "_").lower(),
                 "name": protocol_name,
                 "compounds": protocol_data.get("compounds", []),
+                "frequency": "Daily",
+                "description": f"Protocol with {len(protocol_data.get('compounds', []))} compounds",
                 "createdAt": datetime.now().isoformat() + "Z"
             })
         
         return jsonify(protocols), 200
     except Exception as e:
         return jsonify({"error": f"Failed to fetch protocols: {str(e)}"}), 500
+
+@app.route("/api/protocols", methods=["POST"])
+def api_create_protocol():
+    """API endpoint to create new protocol"""
+    username = session.get('api_username')
+    if not username:
+        return jsonify({"error": "Not authenticated"}), 401
+    
+    data = request.get_json()
+    if not data or not data.get('name'):
+        return jsonify({"error": "Protocol name is required"}), 400
+    
+    name = data.get('name').strip()
+    compounds = data.get('compounds', ["FOXO4-DRI", "Fisetin", "Quercetin"])
+    
+    if not name:
+        return jsonify({"error": "Protocol name is required"}), 400
+    
+    try:
+        user_data = load_data(username)
+        
+        # Check if protocol already exists
+        if name in user_data["protocols"]:
+            return jsonify({"error": "Protocol already exists"}), 409
+        
+        # Create new protocol
+        user_data["protocols"][name] = {
+            "compounds": compounds,
+            "logs": {}
+        }
+        
+        save_data(user_data, username)
+        
+        protocol_response = {
+            "id": name.replace(" ", "_").lower(),
+            "name": name,
+            "compounds": compounds,
+            "frequency": "Daily",
+            "description": f"Protocol with {len(compounds)} compounds",
+            "createdAt": datetime.now().isoformat() + "Z"
+        }
+        
+        return jsonify(protocol_response), 201
+        
+    except Exception as e:
+        return jsonify({"error": f"Failed to create protocol: {str(e)}"}), 500
 
 @app.route("/api/protocols/<protocol_id>/log", methods=["POST"])
 def api_save_protocol_log(protocol_id):
@@ -3181,8 +3229,9 @@ def api_save_protocol_log(protocol_id):
     if not data:
         return jsonify({"error": "No data provided"}), 400
     
-    # Get username from session (simple approach)
-    username = session.get('api_username', 'demo_user')
+    username = session.get('api_username')
+    if not username:
+        return jsonify({"error": "Not authenticated"}), 401
     
     try:
         user_data = load_data(username)

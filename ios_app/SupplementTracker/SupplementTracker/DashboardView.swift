@@ -14,6 +14,9 @@ struct DashboardView: View {
     @State private var isLoading = false
     @State private var errorMessage = ""
     @State private var showingError = false
+    @State private var showingCreateProtocol = false
+    @State private var newProtocolName = ""
+    @State private var isCreating = false
     
     var body: some View {
         NavigationView {
@@ -36,6 +39,14 @@ struct DashboardView: View {
                             .foregroundColor(.secondary)
                             .multilineTextAlignment(.center)
                             .padding(.horizontal)
+                        
+                        Button("Create Protocol") {
+                            showingCreateProtocol = true
+                        }
+                        .foregroundColor(.white)
+                        .padding()
+                        .background(Color.blue)
+                        .cornerRadius(10)
                     }
                     .padding(.top, 60)
                 } else {
@@ -51,12 +62,31 @@ struct DashboardView: View {
             .navigationTitle("My Protocols")
             .navigationBarTitleDisplayMode(.large)
             .toolbar {
+                ToolbarItem(placement: .navigationBarLeading) {
+                    Button("+ Add") {
+                        showingCreateProtocol = true
+                    }
+                    .foregroundColor(.blue)
+                }
+                
                 ToolbarItem(placement: .navigationBarTrailing) {
                     Button("Logout") {
                         apiService.logout()
                     }
                     .foregroundColor(.red)
                 }
+            }
+            .alert("Create Protocol", isPresented: $showingCreateProtocol) {
+                TextField("Protocol Name", text: $newProtocolName)
+                Button("Create") {
+                    createProtocol()
+                }
+                .disabled(newProtocolName.isEmpty || isCreating)
+                Button("Cancel", role: .cancel) {
+                    newProtocolName = ""
+                }
+            } message: {
+                Text("Enter a name for your new supplement protocol")
             }
             .alert("Error", isPresented: $showingError) {
                 Button("OK") { }
@@ -77,6 +107,27 @@ struct DashboardView: View {
                 switch result {
                 case .success(let fetchedProtocols):
                     protocols = fetchedProtocols
+                case .failure(let error):
+                    errorMessage = error.localizedDescription
+                    showingError = true
+                }
+            }
+        }
+    }
+    
+    private func createProtocol() {
+        guard !newProtocolName.isEmpty else { return }
+        
+        isCreating = true
+        let defaultCompounds = ["FOXO4-DRI", "Fisetin", "Quercetin"]
+        
+        apiService.createProtocol(name: newProtocolName, compounds: defaultCompounds) { result in
+            DispatchQueue.main.async {
+                isCreating = false
+                switch result {
+                case .success(let newProtocol):
+                    protocols.append(newProtocol)
+                    newProtocolName = ""
                 case .failure(let error):
                     errorMessage = error.localizedDescription
                     showingError = true
