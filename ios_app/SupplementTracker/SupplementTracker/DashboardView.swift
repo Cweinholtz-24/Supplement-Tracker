@@ -74,14 +74,18 @@ struct DashboardView: View {
         isLoading = true
         errorMessage = ""
         
-        // This would call your webapp API
-        // For now, we'll add some dummy data
-        DispatchQueue.main.asyncAfter(deadline: .now() + 1) {
-            self.protocols = [
-                ProtocolModel(id: "1", name: "Senolytic Stack", compounds: ["FOXO4-DRI", "Fisetin", "Quercetin"]),
-                ProtocolModel(id: "2", name: "Longevity Protocol", compounds: ["NMN", "Resveratrol", "Metformin"])
-            ]
-            self.isLoading = false
+        apiService.fetchProtocols { result in
+            DispatchQueue.main.async {
+                self.isLoading = false
+                switch result {
+                case .success(let fetchedProtocols):
+                    self.protocols = fetchedProtocols
+                case .failure(let error):
+                    self.errorMessage = "Failed to load protocols: \(error.localizedDescription)"
+                    self.protocols = []
+                }
+            }
+        }
         }
     }
 }

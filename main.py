@@ -3141,36 +3141,38 @@ def api_login():
         if not check_password_hash(row[0], password):
             return jsonify({"error": "Invalid credentials"}), 401
         
-        # For now, return success without actual JWT token
-        # In production, you'd want to implement proper JWT authentication
+        # Store username in session for API calls (simple approach)
+        session['api_username'] = username
+        
         return jsonify({
             "success": True,
             "message": "Login successful",
-            "user": {"username": username}
+            "user": {"username": username},
+            "token": f"session_{username}"  # Simple session-based token
         }), 200
 
 @app.route("/api/protocols", methods=["GET"])
 def api_get_protocols():
     """API endpoint to get user protocols"""
-    # For now, we'll return dummy data
-    # In production, you'd validate authentication token and fetch user's protocols
+    # For this demo, we'll use a hardcoded user since we're bypassing auth
+    # In production, you'd get username from JWT token
+    username = "demo_user"  # You can change this to any existing username in your system
     
-    protocols = [
-        {
-            "id": "1",
-            "name": "Senolytic Stack",
-            "compounds": ["FOXO4-DRI", "Fisetin", "Quercetin"],
-            "createdAt": "2024-01-01T00:00:00Z"
-        },
-        {
-            "id": "2", 
-            "name": "Longevity Protocol",
-            "compounds": ["NMN", "Resveratrol", "Metformin"],
-            "createdAt": "2024-01-01T00:00:00Z"
-        }
-    ]
-    
-    return jsonify(protocols), 200
+    try:
+        data = load_data(username)
+        protocols = []
+        
+        for protocol_name, protocol_data in data.get("protocols", {}).items():
+            protocols.append({
+                "id": protocol_name.replace(" ", "_").lower(),
+                "name": protocol_name,
+                "compounds": protocol_data.get("compounds", []),
+                "createdAt": datetime.now().isoformat() + "Z"
+            })
+        
+        return jsonify(protocols), 200
+    except Exception as e:
+        return jsonify({"error": f"Failed to fetch protocols: {str(e)}"}), 500
 
 @app.route("/api/protocols/<protocol_id>/log", methods=["POST"])
 def api_save_protocol_log(protocol_id):
@@ -3179,16 +3181,50 @@ def api_save_protocol_log(protocol_id):
     if not data:
         return jsonify({"error": "No data provided"}), 400
     
-    compounds = data.get('compounds', {})
-    notes = data.get('notes', {})
+    # Get username from session (simple approach)
+    username = session.get('api_username', 'demo_user')
     
-    # For now, just return success
-    # In production, you'd save to database and validate user permissions
-    
-    return jsonify({
-        "success": True,
-        "message": "Protocol log saved successfully"
-    }), 200
+    try:
+        user_data = load_data(username)
+        protocol_name = protocol_id.replace("_", " ").title()
+        
+        # Find matching protocol name
+        matching_protocol = None
+        for pname in user_data.get("protocols", {}):
+            if pname.replace(" ", "_").lower() == protocol_id:
+                matching_protocol = pname
+                break
+        
+        if not matching_protocol:
+            return jsonify({"error": "Protocol not found"}), 404
+        
+        today = date.today().isoformat()
+        
+        if "logs" not in user_data["protocols"][matching_protocol]:
+            user_data["protocols"][matching_protocol]["logs"] = {}
+        
+        if today not in user_data["protocols"][matching_protocol]["logs"]:
+            user_data["protocols"][matching_protocol]["logs"][today] = {}
+        
+        # Update compounds
+        compounds = data.get('compounds', {})
+        notes = data.get('notes', {})
+        
+        for compound, taken in compounds.items():
+            user_data["protocols"][matching_protocol]["logs"][today][compound] = {
+                "taken": taken,
+                "note": notes.get(compound, "")
+            }
+        
+        save_data(user_data, username)
+        
+        return jsonify({
+            "success": True,
+            "message": "Protocol log saved successfully"
+        }), 200
+        
+    except Exception as e:
+        return jsonify({"error": f"Failed to save log: {str(e)}"}), 500
 
 @app.route("/api/protocols/<protocol_id>/history", methods=["GET"])
 def api_get_protocol_history(protocol_id):
