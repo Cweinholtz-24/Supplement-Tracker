@@ -1,4 +1,3 @@
-
 import os, json, io, base64, sqlite3, psutil, time, csv
 from flask import Flask, render_template_string, request, redirect, url_for, session, jsonify, Response, flash
 from flask_login import LoginManager, login_user, logout_user, login_required, UserMixin, current_user
@@ -48,28 +47,28 @@ def init_db():
                 location TEXT DEFAULT ''
             )
         ''')
-        
+
         # Add missing columns if they don't exist
         try:
             cursor.execute("ALTER TABLE users ADD COLUMN location TEXT DEFAULT ''")
         except sqlite3.OperationalError:
             pass  # Column already exists
-        
+
         try:
             cursor.execute("ALTER TABLE users ADD COLUMN custom_fields TEXT DEFAULT '{}'")
         except sqlite3.OperationalError:
             pass  # Column already exists
-        
+
         try:
             cursor.execute("ALTER TABLE users ADD COLUMN ip_address TEXT DEFAULT ''")
         except sqlite3.OperationalError:
             pass  # Column already exists
-        
+
         try:
             cursor.execute("ALTER TABLE users ADD COLUMN login_attempts INTEGER DEFAULT 0")
         except sqlite3.OperationalError:
             pass  # Column already exists
-        
+
         try:
             cursor.execute("ALTER TABLE users ADD COLUMN last_failed_login TIMESTAMP")
         except sqlite3.OperationalError:
@@ -92,18 +91,18 @@ def init_db():
                 last_failed_login TIMESTAMP
             )
         ''')
-        
+
         # Add missing columns if they don't exist
         try:
             cursor.execute("ALTER TABLE admins ADD COLUMN permissions TEXT DEFAULT '{}'")
         except sqlite3.OperationalError:
             pass  # Column already exists
-        
+
         try:
             cursor.execute("ALTER TABLE admins ADD COLUMN login_attempts INTEGER DEFAULT 0")
         except sqlite3.OperationalError:
             pass  # Column already exists
-        
+
         try:
             cursor.execute("ALTER TABLE admins ADD COLUMN last_failed_login TIMESTAMP")
         except sqlite3.OperationalError:
@@ -153,7 +152,7 @@ def init_db():
                 updated_by TEXT DEFAULT ''
             )
         ''')
-        
+
         # Add missing columns if they don't exist
         try:
             cursor.execute("ALTER TABLE app_config ADD COLUMN updated_by TEXT DEFAULT ''")
@@ -287,18 +286,18 @@ def validate_password_complexity(password):
     """Validate password meets complexity requirements"""
     if len(password) < 8:
         return False, "Password must be at least 8 characters long"
-    
+
     has_upper = any(c.isupper() for c in password)
     has_number = any(c.isdigit() for c in password)
     has_special = any(c in "!@#$%^&*()_+-=[]{}|;:,.<>?" for c in password)
-    
+
     if not has_upper:
         return False, "Password must contain at least one uppercase letter"
     if not has_number:
         return False, "Password must contain at least one number"
     if not has_special:
         return False, "Password must contain at least one special character (!@#$%^&*()_+-=[]{}|;:,.<>?)"
-    
+
     return True, "Password meets complexity requirements"
 
 def user_has_valid_2fa(username):
@@ -334,7 +333,7 @@ def get_system_stats():
         cpu_percent = psutil.cpu_percent(interval=1)
         memory = psutil.virtual_memory()
         disk = psutil.disk_usage('/')
-        
+
         return {
             'uptime': uptime,
             'cpu_percent': cpu_percent,
@@ -512,7 +511,7 @@ def register():
     if get_config_value('registration_enabled', 'true') != 'true':
         flash("Registration is currently disabled", "error")
         return redirect(url_for("login"))
-    
+
     if request.method == "POST":
         username = request.form["username"].strip().lower()
         password = request.form["password"]
@@ -1018,7 +1017,7 @@ def update_config():
 
     with get_db_connection() as conn:
         cursor = conn.cursor()
-        
+
         # Check if updated_by column exists
         cursor.execute("PRAGMA table_info(app_config)")
         columns = [row[1] for row in cursor.fetchall()]
@@ -1064,11 +1063,11 @@ def update_config():
 @admin_required
 def test_email():
     test_email_address = request.form.get("test_email")
-    
+
     if not test_email_address:
         flash("Please enter a test email address", "error")
         return redirect(url_for("admin_dashboard"))
-    
+
     subject = "SendGrid Test Email - Supplement Tracker"
     body = f"""This is a test email from your Supplement Tracker application.
 
@@ -1086,7 +1085,7 @@ Supplement Tracker Admin Team"""
         flash(f"Test email sent successfully to {test_email_address}!", "success")
     else:
         flash("Failed to send test email. Please check your SendGrid configuration.", "error")
-    
+
     return redirect(url_for("admin_dashboard"))
 
 @app.route("/admin/system_monitoring")
@@ -1095,23 +1094,23 @@ Supplement Tracker Admin Team"""
 def system_monitoring():
     with get_db_connection() as conn:
         cursor = conn.cursor()
-        
+
         # Get system statistics
         system_stats = get_system_stats()
-        
+
         # Get database size
         cursor.execute("SELECT page_count * page_size as size FROM pragma_page_count(), pragma_page_size()")
         db_size_row = cursor.fetchone()
         db_size = db_size_row[0] if db_size_row else 0
-        
+
         # Get active sessions (simplified)
         cursor.execute("SELECT COUNT(*) FROM users WHERE last_login > datetime('now', '-1 hour')")
         active_sessions = cursor.fetchone()[0]
-        
+
         # Get recent errors
         cursor.execute("SELECT message, created_at FROM system_logs WHERE severity = 'error' ORDER BY created_at DESC LIMIT 10")
         recent_errors = cursor.fetchall()
-        
+
         # Get login attempts in last 24 hours
         cursor.execute("SELECT COUNT(*) FROM system_logs WHERE log_type = 'login_failed' AND created_at > datetime('now', '-1 day')")
         failed_logins_24h = cursor.fetchone()[0]
@@ -1130,14 +1129,14 @@ def admin_users():
     page = request.args.get('page', 1, type=int)
     per_page = 10
     offset = (page - 1) * per_page
-    
+
     with get_db_connection() as conn:
         cursor = conn.cursor()
-        
+
         # Get total count for pagination
         cursor.execute("SELECT COUNT(*) FROM users")
         total_users = cursor.fetchone()[0]
-        
+
         # Get paginated users
         cursor.execute('''
             SELECT u.id, u.username, u.email, u.created_at, u.last_login,
@@ -1204,14 +1203,14 @@ def enable_user(user_id):
 def delete_user(user_id):
     with get_db_connection() as conn:
         cursor = conn.cursor()
-        
+
         cursor.execute("SELECT username FROM users WHERE id = ?", (user_id,))
         username_row = cursor.fetchone()
         if not username_row:
             flash("User not found", "error")
             return redirect(url_for("admin_users"))
         username = username_row[0]
-        
+
         cursor.execute('''
             DELETE FROM protocol_logs 
             WHERE protocol_id IN (SELECT id FROM protocols WHERE user_id = ?)
@@ -1255,7 +1254,7 @@ def edit_user(user_id):
         if request.method == "POST":
             new_email = request.form.get("email", "")
             new_password = request.form.get("new_password", "").strip()
-            
+
             if new_password:
                 # Validate password complexity if enabled
                 if get_config_value('password_complexity', 'true') == 'true':
@@ -1263,14 +1262,14 @@ def edit_user(user_id):
                     if not is_valid:
                         flash(error_msg, "error")
                         return render_template_string(THEME_HEADER + EDIT_USER_TEMPLATE, user=user, user_id=user_id)
-                
+
                 cursor.execute("UPDATE users SET email = ?, password_hash = ? WHERE id = ?", 
                              (new_email, generate_password_hash(new_password), user_id))
                 flash(f"User '{user[0]}' updated with new password", "success")
             else:
                 cursor.execute("UPDATE users SET email = ? WHERE id = ?", (new_email, user_id))
                 flash(f"User '{user[0]}' email updated", "success")
-            
+
             conn.commit()
             log_system_event('user_edited', f'User edited by admin: {user[0]}', 'info')
             return redirect(url_for("admin_users"))
@@ -1336,27 +1335,27 @@ def create_protocol():
 def delete_protocol(name):
     with get_db_connection() as conn:
         cursor = conn.cursor()
-        
+
         cursor.execute("SELECT id FROM users WHERE username = ?", (current_user.id,))
         user_row = cursor.fetchone()
         if not user_row:
             flash("User not found", "error")
             return redirect(url_for("dashboard"))
         user_id = user_row[0]
-        
+
         cursor.execute("SELECT id FROM protocols WHERE user_id = ? AND name = ?", (user_id, name))
         protocol_row = cursor.fetchone()
         if not protocol_row:
             flash(f"Protocol '{name}' not found", "error")
             return redirect(url_for("dashboard"))
         protocol_id = protocol_row[0]
-        
+
         cursor.execute("DELETE FROM protocol_logs WHERE protocol_id = ?", (protocol_id,))
         cursor.execute("DELETE FROM protocols WHERE id = ?", (protocol_id,))
-        
+
         conn.commit()
         flash(f"Protocol '{name}' deleted successfully", "success")
-    
+
     return redirect(url_for("dashboard"))
 
 @app.route("/protocol/<name>", methods=["GET", "POST"])
@@ -1438,7 +1437,7 @@ def reminder(name):
     if get_config_value('email_reminders_enabled', 'true') != 'true':
         flash("Email reminders are currently disabled", "error")
         return redirect(url_for("tracker", name=name))
-    
+
     data = load_data()
     logs = data["protocols"][name]["logs"]
     last = sorted(logs.keys())[-1] if logs else None
@@ -1463,7 +1462,7 @@ def analytics(name):
     if get_config_value('analytics_enabled', 'true') != 'true':
         flash("Analytics is currently disabled", "error")
         return redirect(url_for("tracker", name=name))
-    
+
     data = load_data()
     prot = data["protocols"][name]
     logs = prot["logs"]
@@ -1514,7 +1513,7 @@ def export_csv(name):
     if get_config_value('data_export_enabled', 'true') != 'true':
         flash("Data export is currently disabled", "error")
         return redirect(url_for("tracker", name=name))
-    
+
     data = load_data()
     prot = data["protocols"][name]
 
@@ -1586,7 +1585,7 @@ def send_email(to_email, subject, body):
 
         sg = SendGridAPIClient(api_key=api_key)
         response = sg.send(message)
-        
+
         return response.status_code == 202
 
     except Exception as e:
@@ -1763,7 +1762,7 @@ ADMIN_DASHBOARD_TEMPLATE = """
       </div>
       <button type="submit" class="btn-primary" title="Save email configuration settings">📧 Save SendGrid Configuration</button>
     </form>
-    
+
     <div style="margin-top: 24px; padding: 16px; background: var(--bg); border-radius: 8px; border: 1px solid var(--border);">
       <h4 style="margin: 0 0 16px 0; color: var(--primary);">🧪 Test Email Configuration</h4>
       <form method="POST" action="/admin/test_email" style="display: flex; gap: 12px; align-items: end;">
@@ -1930,7 +1929,7 @@ SYSTEM_MONITORING_TEMPLATE = """
           <td>{{error[0]}}</td>
           <td>{{error[1]}}</td>
         </tr>
-        {% endfor %}
+      {% endfor %}
       </tbody>
     </table>
   </div>
@@ -2228,26 +2227,74 @@ tr:hover { background: var(--bg); }
   box-shadow: var(--shadow-lg);
 }
 .form-group { 
-  margin: 16px 0; 
+  margin: 24px 0; 
 }
+
 .form-group label { 
   display: block; 
-  margin-bottom: 8px; 
-  font-weight: 500;
+  margin-bottom: 12px; 
+  font-weight: 600;
+  color: var(--text);
+  font-size: 14px;
+  letter-spacing: 0.025em;
 }
+
 .status-badge { 
-  padding: 4px 8px; 
-  border-radius: 20px; 
-  font-size: 12px; 
-  font-weight: 500;
+  padding: 8px 16px; 
+  border-radius: 50px; 
+  font-size: 13px; 
+  font-weight: 600;
+  letter-spacing: 0.025em;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  box-shadow: var(--shadow);
+  border: 2px solid transparent;
+  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
 }
+
 .status-success { 
-  background: var(--success); 
+  background: linear-gradient(135deg, var(--success), #38a169);
   color: white;
+  border-color: var(--success);
 }
+
+.status-success:hover {
+  transform: translateY(-1px);
+  box-shadow: var(--shadow-md);
+}
+
 .status-danger { 
-  background: var(--danger); 
+  background: linear-gradient(135deg, var(--danger), #e53e3e);
   color: white;
+  border-color: var(--danger);
+}
+
+.status-danger:hover {
+  transform: translateY(-1px);
+  box-shadow: var(--shadow-md);
+}
+
+.status-info { 
+  background: linear-gradient(135deg, var(--info), #3182ce);
+  color: white;
+  border-color: var(--info);
+}
+
+.status-info:hover {
+  transform: translateY(-1px);
+  box-shadow: var(--shadow-md);
+}
+
+.status-warning { 
+  background: linear-gradient(135deg, var(--warning), #dd6b20);
+  color: white;
+  border-color: var(--warning);
+}
+
+.status-warning:hover {
+  transform: translateY(-1px);
+  box-shadow: var(--shadow-md);
 }
 .checkbox-cell { 
   text-align: center; 
@@ -2527,7 +2574,7 @@ CAL_TEMPLATE = """
 <script>
 document.addEventListener('DOMContentLoaded', function() {
   console.log('Initializing calendar for protocol: {{name}}');
-  
+
   // Check if FullCalendar loaded
   if (typeof FullCalendar === 'undefined') {
     console.error('FullCalendar library failed to load');
@@ -2542,10 +2589,10 @@ document.addEventListener('DOMContentLoaded', function() {
 
   try {
     const calendarEl = document.getElementById('calendar');
-    
+
     // Clear loading message
     calendarEl.innerHTML = '';
-    
+
     const calendar = new FullCalendar.Calendar(calendarEl, {
       initialView: 'dayGridMonth',
       headerToolbar: {
@@ -2583,7 +2630,7 @@ document.addEventListener('DOMContentLoaded', function() {
           console.warn('No entries found for event');
           return;
         }
-        
+
         let html = '<div style="display: grid; gap: 8px;">';
         for (const [compound, data] of Object.entries(entries)) {
           const status = data.taken ? '✅ Taken' : '❌ Missed';
@@ -2595,7 +2642,7 @@ document.addEventListener('DOMContentLoaded', function() {
         html += '</div>';
         document.getElementById('logContent').innerHTML = html;
         document.getElementById('logDetails').style.display = 'block';
-        
+
         // Scroll to details
         document.getElementById('logDetails').scrollIntoView({ behavior: 'smooth' });
       },
@@ -2612,10 +2659,10 @@ document.addEventListener('DOMContentLoaded', function() {
         }
       }
     });
-    
+
     calendar.render();
     console.log('Calendar rendered successfully');
-    
+
   } catch (error) {
     console.error('Calendar initialization error:', error);
     document.getElementById('calendar').innerHTML = 
@@ -2727,7 +2774,7 @@ ADMIN_USERS_TEMPLATE = """
         Total: {{total_users}} users | Showing {{(current_page-1)*per_page + 1}}-{{((current_page-1)*per_page + users|length)}} of {{total_users}}
       </div>
     </div>
-    
+
     {% if users %}
       <table>
         <thead>
