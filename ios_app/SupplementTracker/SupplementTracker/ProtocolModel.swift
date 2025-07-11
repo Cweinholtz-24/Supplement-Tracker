@@ -1,4 +1,3 @@
-
 //
 //  ProtocolModel.swift
 //  SupplementTracker
@@ -13,20 +12,23 @@ struct ProtocolModel: Identifiable, Codable {
     let name: String
     let compounds: [String]
     let frequency: String
-    let description: String
+    let description: String?
+    var isActive: Bool
     let createdAt: String?
+    let updatedAt: String?
+    let userId: Int?
 
-    enum CodingKeys: String, CodingKey {
-        case id, name, compounds, frequency, description, createdAt
-    }
-    
-    init(id: String, name: String, compounds: [String], frequency: String = "Daily", description: String = "", createdAt: String? = nil) {
+    // Custom initializer to handle default values
+    init(id: String, name: String, compounds: [String], frequency: String, description: String? = nil, isActive: Bool = true, createdAt: String? = nil, updatedAt: String? = nil, userId: Int? = nil) {
         self.id = id
         self.name = name
         self.compounds = compounds
         self.frequency = frequency
         self.description = description
+        self.isActive = isActive
         self.createdAt = createdAt
+        self.updatedAt = updatedAt
+        self.userId = userId
     }
 }
 

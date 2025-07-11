@@ -33,9 +33,9 @@ struct DashboardView: View {
                     } else {
                         ScrollView {
                             LazyVStack(spacing: 16) {
-                                ForEach(protocols) { protocol in
-                                    NavigationLink(destination: ProtocolDetailView(protocolItem: protocol)) {
-                                        ProtocolRowView(protocolItem: protocol)
+                                ForEach(protocols, id: \.id) { protocolItem in
+                                    NavigationLink(destination: ProtocolDetailView(protocolItem: protocolItem)) {
+                                        ProtocolRowView(protocolItem: protocolItem)
                                     }
                                     .buttonStyle(PlainButtonStyle())
                                 }
@@ -563,7 +563,7 @@ struct NotificationRowView: View {
                 apiService.markNotificationAsRead(notificationId: notification.id) { _ in }
             }
         }
-    }    
+    }
 
     private func formatDate(_ dateString: String) -> String {
         let formatter = DateFormatter()
@@ -612,3 +612,4 @@ struct ProtocolRowView: View {
     DashboardView()
         .environmentObject(APIService.shared)
 }
+```

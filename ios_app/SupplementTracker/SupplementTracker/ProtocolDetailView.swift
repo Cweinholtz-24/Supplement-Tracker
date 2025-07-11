@@ -1,4 +1,3 @@
-
 //
 //  ProtocolDetailView.swift
 //  SupplementTracker
@@ -27,11 +26,11 @@ struct ProtocolDetailView: View {
                     Text(protocolItem.name)
                         .font(.title)
                         .fontWeight(.bold)
-                    
+
                     Text(protocolItem.description)
                         .font(.body)
                         .foregroundColor(.secondary)
-                    
+
                     Text("\(protocolItem.compounds.count) compounds • \(protocolItem.frequency)")
                         .font(.caption)
                         .foregroundColor(.secondary)
@@ -44,7 +43,7 @@ struct ProtocolDetailView: View {
                         .font(.headline)
                         .fontWeight(.semibold)
                         .padding(.horizontal)
-                    
+
                     ForEach(protocolItem.compounds, id: \.self) { compound in
                         CompoundRowView(
                             compound: compound,
@@ -60,7 +59,7 @@ struct ProtocolDetailView: View {
                         .padding(.horizontal)
                     }
                 }
-                
+
                 // Save Button
                 Button(action: saveLog) {
                     HStack {
@@ -99,7 +98,7 @@ struct ProtocolDetailView: View {
             initializeStates()
         }
     }
-    
+
     private func initializeStates() {
         // Initialize compound states
         for compound in protocolItem.compounds {
@@ -111,12 +110,12 @@ struct ProtocolDetailView: View {
             }
         }
     }
-    
+
     private func saveLog() {
         isLoading = true
-        
+
         let protocolId = protocolItem.id
-        
+
         apiService.saveProtocolLog(
             protocolId: protocolId,
             compounds: compoundStates,
@@ -141,7 +140,7 @@ struct CompoundRowView: View {
     let compound: String
     @Binding var taken: Bool
     @Binding var note: String
-    
+
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
             HStack {
@@ -150,18 +149,18 @@ struct CompoundRowView: View {
                         Image(systemName: taken ? "checkmark.circle.fill" : "circle")
                             .foregroundColor(taken ? .green : .gray)
                             .font(.title2)
-                        
+
                         Text(compound)
                             .font(.body)
                             .fontWeight(.medium)
                             .foregroundColor(.primary)
-                        
+
                         Spacer()
                     }
                 }
                 .buttonStyle(PlainButtonStyle())
             }
-            
+
             TextField("Add notes...", text: $note)
                 .textFieldStyle(RoundedBorderTextFieldStyle())
                 .font(.caption)
@@ -215,11 +214,11 @@ struct ProtocolDetailView: View {
                             Text(protocolItem.name)
                                 .font(.title)
                                 .fontWeight(.bold)
-                            
+
                             Text("Frequency: \(protocolItem.frequency)")
                                 .font(.subheadline)
                                 .foregroundColor(.secondary)
-                            
+
                             if !protocolItem.description.isEmpty {
                                 Text(protocolItem.description)
                                     .font(.body)
@@ -315,7 +314,7 @@ struct ProtocolDetailView: View {
 
     private func saveLog() {
         isLoading = true
-        
+
         apiService.saveProtocolLog(
             protocolId: protocolItem.id,
             compounds: compoundStates,
