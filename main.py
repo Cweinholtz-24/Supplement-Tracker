@@ -675,11 +675,11 @@ def twofa_setup():
           </div>
         </div>
         """
-
-        return render_template_string(THEME_HEADER + setup_template, 
-                                    qr_code=encoded, 
-                                    secret=data['2fa_secret'],
-                                    username=username)
+        from jinja2 import Template
+        template = Template(THEME_HEADER + setup_template)
+        return template.render(qr_code=encoded, 
+                             secret=data['2fa_secret'],
+                             username=username)
 
     except Exception as e:
         flash(f"Error generating 2FA setup: {str(e)}", "error")
@@ -750,11 +750,11 @@ def admin_twofa_setup():
           </div>
         </div>
         """
-
-        return render_template_string(THEME_HEADER + setup_template, 
-                                    qr_code=encoded, 
-                                    secret=data['2fa_secret'],
-                                    username=username)
+        from jinja2 import Template
+        template = Template(THEME_HEADER + setup_template)
+        return template.render(qr_code=encoded, 
+                             secret=data['2fa_secret'],
+                             username=username)
 
     except Exception as e:
         flash(f"Error generating admin 2FA setup: {str(e)}", "error")
@@ -770,6 +770,7 @@ def logout():
 @login_required
 def admin_logout():
     logout_user()
+    ```python
     return redirect(url_for("admin_login"))
 
 @app.route("/admin/dashboard")
@@ -1607,7 +1608,7 @@ tr:hover { background: var(--bg); }
 <script>
 document.addEventListener('DOMContentLoaded', () => {
   const btn = document.createElement('button');
-  btn.innerHTML = "🌙 <span>Dark Mode</span>";
+  btn.innerHTML = "🌙 <span>DarkMode</span>";
   btn.className = "theme-toggle";
   btn.onclick = () => {
     document.body.classList.toggle('dark');
