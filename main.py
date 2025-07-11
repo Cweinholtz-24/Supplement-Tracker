@@ -2508,7 +2508,12 @@ CAL_TEMPLATE = """
   </div>
 
   <div class="card">
-    <div id="calendar" style="min-height: 600px;"></div>
+    <div id="calendar" style="min-height: 600px;">
+      <div style="text-align: center; padding: 40px; color: var(--text); opacity: 0.7;">
+        <h3>📅 Loading Calendar...</h3>
+        <p>Please wait while the calendar loads.</p>
+      </div>
+    </div>
   </div>
 
   <div class="card" id="logDetails" style="display: none;">
@@ -2517,12 +2522,30 @@ CAL_TEMPLATE = """
   </div>
 </div>
 
-<link href="https://cdn.jsdelivr.net/npm/fullcalendar@6.1.10/main.min.css" rel="stylesheet">
-<script src="https://cdn.jsdelivr.net/npm/fullcalendar@6.1.10/main.min.js"></script>
+<link href="https://cdn.jsdelivr.net/npm/fullcalendar@5.11.5/main.min.css" rel="stylesheet">
+<script src="https://cdn.jsdelivr.net/npm/fullcalendar@5.11.5/main.min.js"></script>
 <script>
 document.addEventListener('DOMContentLoaded', function() {
+  console.log('Initializing calendar for protocol: {{name}}');
+  
+  // Check if FullCalendar loaded
+  if (typeof FullCalendar === 'undefined') {
+    console.error('FullCalendar library failed to load');
+    document.getElementById('calendar').innerHTML = 
+      '<div style="text-align: center; padding: 40px; color: var(--danger);">' +
+      '<h3>❌ Calendar Library Error</h3>' +
+      '<p>Unable to load calendar library. Please refresh the page or check your internet connection.</p>' +
+      '<button onclick="location.reload()" class="btn-primary" style="margin-top: 16px;">🔄 Refresh Page</button>' +
+      '</div>';
+    return;
+  }
+
   try {
     const calendarEl = document.getElementById('calendar');
+    
+    // Clear loading message
+    calendarEl.innerHTML = '';
+    
     const calendar = new FullCalendar.Calendar(calendarEl, {
       initialView: 'dayGridMonth',
       headerToolbar: {
@@ -2530,9 +2553,37 @@ document.addEventListener('DOMContentLoaded', function() {
         center: 'title',
         right: 'dayGridMonth,dayGridWeek'
       },
-      events: '/protocol/{{name}}/logs.json',
+      events: function(fetchInfo, successCallback, failureCallback) {
+        fetch('/protocol/{{name}}/logs.json')
+          .then(response => {
+            if (!response.ok) {
+              throw new Error(`HTTP error! status: ${response.status}`);
+            }
+            return response.json();
+          })
+          .then(data => {
+            console.log('Calendar events loaded:', data.length, 'events');
+            successCallback(data);
+          })
+          .catch(error => {
+            console.error('Error loading calendar events:', error);
+            failureCallback(error);
+            document.getElementById('calendar').innerHTML = 
+              '<div style="text-align: center; padding: 40px; color: var(--warning);">' +
+              '<h3>⚠️ Data Loading Error</h3>' +
+              '<p>Unable to load calendar data. Please try refreshing the page.</p>' +
+              '<button onclick="location.reload()" class="btn-primary" style="margin-top: 16px;">🔄 Refresh Page</button>' +
+              '</div>';
+          });
+      },
       eventClick: function(info) {
+        console.log('Event clicked:', info.event.title);
         const entries = info.event.extendedProps.entries;
+        if (!entries) {
+          console.warn('No entries found for event');
+          return;
+        }
+        
         let html = '<div style="display: grid; gap: 8px;">';
         for (const [compound, data] of Object.entries(entries)) {
           const status = data.taken ? '✅ Taken' : '❌ Missed';
@@ -2544,16 +2595,34 @@ document.addEventListener('DOMContentLoaded', function() {
         html += '</div>';
         document.getElementById('logContent').innerHTML = html;
         document.getElementById('logDetails').style.display = 'block';
+        
+        // Scroll to details
+        document.getElementById('logDetails').scrollIntoView({ behavior: 'smooth' });
       },
-      height: 'auto'
+      eventDidMount: function(info) {
+        // Add tooltip on hover
+        info.el.title = info.event.title + ' - Click for details';
+      },
+      height: 'auto',
+      loading: function(isLoading) {
+        if (isLoading) {
+          console.log('Calendar is loading...');
+        } else {
+          console.log('Calendar finished loading');
+        }
+      }
     });
+    
     calendar.render();
+    console.log('Calendar rendered successfully');
+    
   } catch (error) {
-    console.error('Calendar loading error:', error);
+    console.error('Calendar initialization error:', error);
     document.getElementById('calendar').innerHTML = 
       '<div style="text-align: center; padding: 40px; color: var(--danger);">' +
       '<h3>❌ Calendar Error</h3>' +
-      '<p>Unable to load calendar. Please check your internet connection.</p>' +
+      '<p>Unable to initialize calendar: ' + error.message + '</p>' +
+      '<button onclick="location.reload()" class="btn-primary" style="margin-top: 16px;">🔄 Refresh Page</button>' +
       '</div>';
   }
 });
