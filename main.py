@@ -153,6 +153,12 @@ def init_db():
                 updated_by TEXT DEFAULT ''
             )
         ''')
+        
+        # Add missing columns if they don't exist
+        try:
+            cursor.execute("ALTER TABLE app_config ADD COLUMN updated_by TEXT DEFAULT ''")
+        except sqlite3.OperationalError:
+            pass  # Column already exists
 
         # System monitoring table
         cursor.execute('''
@@ -1012,23 +1018,40 @@ def update_config():
 
     with get_db_connection() as conn:
         cursor = conn.cursor()
+        
+        # Check if updated_by column exists
+        cursor.execute("PRAGMA table_info(app_config)")
+        columns = [row[1] for row in cursor.fetchall()]
+        has_updated_by = 'updated_by' in columns
 
         # Update configuration values
         for key in ["app_name", "max_protocols_per_user", "sendgrid_api_key", "sendgrid_from_email", "password_min_length", "max_login_attempts", "session_timeout"]:
             value = request.form.get(key)
             if value is not None:
-                cursor.execute('''
-                    INSERT OR REPLACE INTO app_config (key, value, updated_at, updated_by)
-                    VALUES (?, ?, CURRENT_TIMESTAMP, ?)
-                ''', (key, value, current_user.username))
+                if has_updated_by:
+                    cursor.execute('''
+                        INSERT OR REPLACE INTO app_config (key, value, updated_at, updated_by)
+                        VALUES (?, ?, CURRENT_TIMESTAMP, ?)
+                    ''', (key, value, current_user.username))
+                else:
+                    cursor.execute('''
+                        INSERT OR REPLACE INTO app_config (key, value, updated_at)
+                        VALUES (?, ?, CURRENT_TIMESTAMP)
+                    ''', (key, value))
 
         # Handle boolean configs
         for key in ["email_reminders_enabled", "registration_enabled", "data_export_enabled", "analytics_enabled", "maintenance_mode", "require_2fa", "force_2fa_setup", "password_complexity"]:
             value = "true" if request.form.get(key) == "on" else "false"
-            cursor.execute('''
-                INSERT OR REPLACE INTO app_config (key, value, updated_at, updated_by)
-                VALUES (?, ?, CURRENT_TIMESTAMP, ?)
-            ''', (key, value, current_user.username))
+            if has_updated_by:
+                cursor.execute('''
+                    INSERT OR REPLACE INTO app_config (key, value, updated_at, updated_by)
+                    VALUES (?, ?, CURRENT_TIMESTAMP, ?)
+                ''', (key, value, current_user.username))
+            else:
+                cursor.execute('''
+                    INSERT OR REPLACE INTO app_config (key, value, updated_at)
+                    VALUES (?, ?, CURRENT_TIMESTAMP)
+                ''', (key, value))
 
         conn.commit()
 
