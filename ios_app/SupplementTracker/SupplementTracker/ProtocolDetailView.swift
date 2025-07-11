@@ -29,12 +29,12 @@ struct ProtocolDetailView: View {
                                 .font(.title)
                                 .fontWeight(.bold)
 
-                            Text("Frequency: \(protocolItem.frequency)")
+                            Text("Frequency: \(protocolItem.displayFrequency)")
                                 .font(.subheadline)
                                 .foregroundColor(.secondary)
 
-                            if !protocolItem.description.isEmpty {
-                                Text(protocolItem.description)
+                            if !protocolItem.displayDescription.isEmpty {
+                                Text(protocolItem.displayDescription)
                                     .font(.body)
                                     .foregroundColor(.secondary)
                             }
