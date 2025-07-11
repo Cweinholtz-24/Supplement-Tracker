@@ -40,8 +40,8 @@ struct DashboardView: View {
                     .padding(.top, 60)
                 } else {
                     List(protocols) { protocolItem in
-                        NavigationLink(destination: ProtocolDetailView(protocol: protocolItem)) {
-                            ProtocolRowView(protocol: protocolItem)
+                        NavigationLink(destination: ProtocolDetailView(protocolItem: protocolItem)) {
+                            ProtocolRowView(protocolItem: protocolItem)
                         }
                     }
                 }
