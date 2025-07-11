@@ -7,6 +7,7 @@
 //
 
 import SwiftUI
+import Foundation
 
 @main
 struct SupplementTrackerApp: App {

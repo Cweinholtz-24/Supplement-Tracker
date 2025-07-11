@@ -7,6 +7,7 @@
 //
 
 import SwiftUI
+import Foundation
 
 struct LoginView: View {
     @EnvironmentObject var apiService: APIService
