@@ -557,21 +557,36 @@ enum APIError: Error {
     case loginFailed
     case twoFAFailed
     case requestFailed
+    case networkError
+    case serverError(Int)
     
     var localizedDescription: String {
         switch self {
         case .invalidURL:
-            return "Invalid URL"
+            return "Invalid URL configuration"
         case .invalidResponse:
-            return "Invalid response"
+            return "Server returned an invalid response"
         case .noData:
-            return "No data received"
+            return "No data received from server"
         case .loginFailed:
-            return "Login failed"
+            return "Invalid username or password"
         case .twoFAFailed:
-            return "2FA verification failed"
+            return "Invalid 2FA code. Please try again."
         case .requestFailed:
-            return "Request failed"
+            return "Request failed. Please try again."
+        case .networkError:
+            return "Network connection error. Check your internet connection."
+        case .serverError(let code):
+            return "Server error (\(code)). Please try again later."
+        }
+    }
+    
+    var isRetryable: Bool {
+        switch self {
+        case .networkError, .serverError, .requestFailed:
+            return true
+        default:
+            return false
         }
     }
 }

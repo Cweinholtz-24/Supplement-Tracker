@@ -43,6 +43,9 @@ struct DashboardView: View {
                             }
                             .padding()
                         }
+                        .refreshable {
+                            fetchProtocols()
+                        }
                     }
                 }
                 .navigationTitle("Protocols")
@@ -121,9 +124,15 @@ struct DashboardView: View {
                 switch result {
                 case .success(let fetchedProtocols):
                     protocols = fetchedProtocols
+                    // Haptic feedback on success
+                    let impactFeedback = UIImpactFeedbackGenerator(style: .light)
+                    impactFeedback.impactOccurred()
                 case .failure(let error):
                     errorMessage = error.localizedDescription
                     showingError = true
+                    // Haptic feedback on error
+                    let notificationFeedback = UINotificationFeedbackGenerator()
+                    notificationFeedback.notificationOccurred(.error)
                 }
             }
         }
