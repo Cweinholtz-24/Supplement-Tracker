@@ -543,43 +543,15 @@ def twofa_setup():
         img.save(buf, format="PNG")
         buf.seek(0)
         encoded = base64.b64encode(buf.read()).decode()
-        print(f"QR code generated successfully, encoded length: {len(encoded)}")
+        print(f"User 2FA QR code generated successfully, encoded length: {len(encoded)}")
 
-        setup_template = """
-        <div class="container">
-          <div class="card" style="max-width: 600px; margin: 40px auto; text-align: center;">
-            <h2>🔐 Set Up Two-Factor Authentication</h2>
-            <p style="margin-bottom: 24px;">Scan this QR code with Google Authenticator, Authy, or any compatible 2FA app:</p>
-
-            <div style="background: white; padding: 20px; border-radius: 12px; margin: 20px auto; display: inline-block; box-shadow: var(--shadow);">
-              <img src='data:image/png;base64,{qr_code}' style="max-width: 256px; height: auto;">
-            </div>
-
-            <div style="background: var(--bg); padding: 20px; border-radius: 12px; margin: 20px 0; border: 2px solid var(--border);">
-              <h3 style="margin: 0 0 12px 0; color: var(--primary);">Manual Entry Code</h3>
-              <p style="margin: 0 0 8px 0; font-size: 14px; opacity: 0.8;">If you can't scan the QR code, enter this code manually:</p>
-              <div style="background: var(--card-bg); padding: 16px; border-radius: 8px; margin: 12px 0;">
-                <code style="font-size: 18px; font-weight: bold; color: var(--primary); letter-spacing: 2px; word-break: break-all;">{secret}</code>
-              </div>
-              <p style="margin: 8px 0 0 0; font-size: 12px; opacity: 0.6;">
-                Account: {username}<br>
-                Issuer: SupplementTracker
-              </p>
-            </div>
-
-            <div style="margin: 32px 0;">
-              <p style="font-size: 14px; margin-bottom: 16px;">After adding the account to your authenticator app, click below to verify:</p>
-              <a href='/2fa' class="btn-primary" style="display: inline-block; padding: 16px 32px; text-decoration: none; border-radius: 8px; font-size: 16px;">Continue to Verify →</a>
-            </div>
-          </div>
-        </div>
-        """
-        return render_template_string(THEME_HEADER + setup_template,
+        return render_template_string(THEME_HEADER + TWOFA_SETUP_TEMPLATE,
                                     qr_code=encoded, 
                                     secret=data['2fa_secret'],
                                     username=username)
 
     except Exception as e:
+        print(f"2FA setup error: {str(e)}")
         flash(f"Error generating 2FA setup: {str(e)}", "error")
         return redirect(url_for("register"))
 
@@ -617,43 +589,15 @@ def admin_twofa_setup():
         img.save(buf, format="PNG")
         buf.seek(0)
         encoded = base64.b64encode(buf.read()).decode()
-        print(f"Admin QR code generated successfully, encoded length: {len(encoded)}")
+        print(f"Admin 2FA QR code generated successfully, encoded length: {len(encoded)}")
 
-        setup_template = """
-        <div class="container">
-          <div class="card" style="max-width: 600px; margin: 40px auto; text-align: center;">
-            <h2>👑 Set Up Admin Two-Factor Authentication</h2>
-            <p style="margin-bottom: 24px;">Scan this QR code with Google Authenticator, Authy, or any compatible 2FA app:</p>
-
-            <div style="background: white; padding: 20px; border-radius: 12px; margin: 20px auto; display: inline-block; box-shadow: var(--shadow);">
-              <img src='data:image/png;base64,{qr_code}' style="max-width: 256px; height: auto;">
-            </div>
-
-            <div style="background: var(--bg); padding: 20px; border-radius: 12px; margin: 20px 0; border: 2px solid var(--border);">
-              <h3 style="margin: 0 0 12px 0; color: var(--primary);">Manual Entry Code</h3>
-              <p style="margin: 0 0 8px 0; font-size: 14px; opacity: 0.8;">If you can't scan the QR code, enter this code manually:</p>
-              <div style="background: var(--card-bg); padding: 16px; border-radius: 8px; margin: 12px 0;">
-                <code style="font-size: 18px; font-weight: bold; color: var(--primary); letter-spacing: 2px; word-break: break-all;">{secret}</code>
-              </div>
-              <p style="margin: 8px 0 0 0; font-size: 12px; opacity: 0.6;">
-                Account: admin_{username}<br>
-                Issuer: SupplementTracker-Admin
-              </p>
-            </div>
-
-            <div style="margin: 32px 0;">
-              <p style="font-size: 14px; margin-bottom: 16px;">After adding the account to your authenticator app, click below to verify:</p>
-              <a href='/admin/2fa' class="btn-primary" style="display: inline-block; padding: 16px 32px; text-decoration: none; border-radius: 8px; font-size: 16px;">Continue to Verify →</a>
-            </div>
-          </div>
-        </div>
-        """
-        return render_template_string(THEME_HEADER + setup_template,
+        return render_template_string(THEME_HEADER + ADMIN_TWOFA_SETUP_TEMPLATE,
                                     qr_code=encoded, 
                                     secret=data['2fa_secret'],
                                     username=username)
 
     except Exception as e:
+        print(f"Admin 2FA setup error: {str(e)}")
         flash(f"Error generating admin 2FA setup: {str(e)}", "error")
         return redirect(url_for("admin_register"))
 
@@ -1229,6 +1173,66 @@ TWOFA_TEMPLATE = """
       </div>
       <button type="submit" class="btn-primary">Verify Code</button>
     </form>
+  </div>
+</div>
+"""
+
+TWOFA_SETUP_TEMPLATE = """
+<div class="container">
+  <div class="card" style="max-width: 600px; margin: 40px auto; text-align: center;">
+    <h2>🔐 Set Up Two-Factor Authentication</h2>
+    <p style="margin-bottom: 24px;">Scan this QR code with Google Authenticator, Authy, or any compatible 2FA app:</p>
+
+    <div style="background: white; padding: 20px; border-radius: 12px; margin: 20px auto; display: inline-block; box-shadow: var(--shadow);">
+      <img src="data:image/png;base64,{{qr_code}}" style="max-width: 256px; height: auto;" alt="2FA QR Code">
+    </div>
+
+    <div style="background: var(--bg); padding: 20px; border-radius: 12px; margin: 20px 0; border: 2px solid var(--border);">
+      <h3 style="margin: 0 0 12px 0; color: var(--primary);">Manual Entry Code</h3>
+      <p style="margin: 0 0 8px 0; font-size: 14px; opacity: 0.8;">If you cannot scan the QR code, enter this code manually:</p>
+      <div style="background: var(--card-bg); padding: 16px; border-radius: 8px; margin: 12px 0;">
+        <code style="font-size: 18px; font-weight: bold; color: var(--primary); letter-spacing: 2px; word-break: break-all;">{{secret}}</code>
+      </div>
+      <p style="margin: 8px 0 0 0; font-size: 12px; opacity: 0.6;">
+        Account: {{username}}<br>
+        Issuer: SupplementTracker
+      </p>
+    </div>
+
+    <div style="margin: 32px 0;">
+      <p style="font-size: 14px; margin-bottom: 16px;">After adding the account to your authenticator app, click below to verify:</p>
+      <a href="/2fa" class="btn-primary" style="display: inline-block; padding: 16px 32px; text-decoration: none; border-radius: 8px; font-size: 16px;">Continue to Verify →</a>
+    </div>
+  </div>
+</div>
+"""
+
+ADMIN_TWOFA_SETUP_TEMPLATE = """
+<div class="container">
+  <div class="card" style="max-width: 600px; margin: 40px auto; text-align: center;">
+    <h2>👑 Set Up Admin Two-Factor Authentication</h2>
+    <p style="margin-bottom: 24px;">Scan this QR code with Google Authenticator, Authy, or any compatible 2FA app:</p>
+
+    <div style="background: white; padding: 20px; border-radius: 12px; margin: 20px auto; display: inline-block; box-shadow: var(--shadow);">
+      <img src="data:image/png;base64,{{qr_code}}" style="max-width: 256px; height: auto;" alt="Admin 2FA QR Code">
+    </div>
+
+    <div style="background: var(--bg); padding: 20px; border-radius: 12px; margin: 20px 0; border: 2px solid var(--border);">
+      <h3 style="margin: 0 0 12px 0; color: var(--primary);">Manual Entry Code</h3>
+      <p style="margin: 0 0 8px 0; font-size: 14px; opacity: 0.8;">If you cannot scan the QR code, enter this code manually:</p>
+      <div style="background: var(--card-bg); padding: 16px; border-radius: 8px; margin: 12px 0;">
+        <code style="font-size: 18px; font-weight: bold; color: var(--primary); letter-spacing: 2px; word-break: break-all;">{{secret}}</code>
+      </div>
+      <p style="margin: 8px 0 0 0; font-size: 12px; opacity: 0.6;">
+        Account: admin_{{username}}<br>
+        Issuer: SupplementTracker-Admin
+      </p>
+    </div>
+
+    <div style="margin: 32px 0;">
+      <p style="font-size: 14px; margin-bottom: 16px;">After adding the account to your authenticator app, click below to verify:</p>
+      <a href="/admin/2fa" class="btn-primary" style="display: inline-block; padding: 16px 32px; text-decoration: none; border-radius: 8px; font-size: 16px;">Continue to Verify →</a>
+    </div>
   </div>
 </div>
 """
