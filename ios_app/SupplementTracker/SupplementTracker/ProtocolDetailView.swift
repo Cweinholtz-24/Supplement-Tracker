@@ -13,35 +13,40 @@ struct ProtocolDetailView: View {
     @EnvironmentObject var apiService: APIService
     @State private var compoundStates: [String: Bool] = [:]
     @State private var compoundNotes: [String: String] = [:]
-    @State private var isSaving = false
-    @State private var showingSaveSuccess = false
+    @State private var isLoading = false
     @State private var errorMessage = ""
     @State private var showingError = false
+    @State private var showingSuccess = false
     
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 20) {
-                // Protocol Header
-                VStack(alignment: .leading, spacing: 8) {
+                // Protocol Info
+                VStack(alignment: .leading, spacing: 12) {
                     Text(protocol.name)
                         .font(.largeTitle)
                         .fontWeight(.bold)
+                    
+                    Text("Frequency: \(protocol.frequency)")
+                        .font(.headline)
+                        .foregroundColor(.secondary)
                     
                     if !protocol.description.isEmpty {
                         Text(protocol.description)
                             .font(.body)
                             .foregroundColor(.secondary)
                     }
-                    
-                    Text("Today's Tracking")
+                }
+                .padding()
+                .background(Color(.systemGray6))
+                .cornerRadius(12)
+                
+                // Compounds Section
+                VStack(alignment: .leading, spacing: 16) {
+                    Text("Today's Compounds")
                         .font(.title2)
                         .fontWeight(.semibold)
-                        .padding(.top)
-                }
-                .padding(.horizontal)
-                
-                // Compounds List
-                VStack(spacing: 16) {
+                    
                     ForEach(protocol.compounds, id: \.self) { compound in
                         CompoundRowView(
                             compound: compound,
@@ -56,19 +61,17 @@ struct ProtocolDetailView: View {
                         )
                     }
                 }
-                .padding(.horizontal)
                 
                 // Save Button
                 Button(action: saveLog) {
                     HStack {
-                        if isSaving {
+                        if isLoading {
                             ProgressView()
                                 .progressViewStyle(CircularProgressViewStyle(tint: .white))
                                 .scaleEffect(0.8)
-                        } else {
-                            Image(systemName: "checkmark.circle.fill")
                         }
-                        Text(isSaving ? "Saving..." : "Save Today's Log")
+                        Text(isLoading ? "Saving..." : "Save Today's Log")
+                            .fontWeight(.semibold)
                     }
                     .frame(maxWidth: .infinity)
                     .padding()
@@ -76,27 +79,25 @@ struct ProtocolDetailView: View {
                     .foregroundColor(.white)
                     .cornerRadius(12)
                 }
-                .disabled(isSaving)
-                .padding(.horizontal)
+                .disabled(isLoading)
                 .padding(.top)
             }
+            .padding()
         }
+        .navigationTitle("Protocol Details")
         .navigationBarTitleDisplayMode(.inline)
-        .onAppear {
-            initializeStates()
-        }
-        .alert("Success", isPresented: $showingSaveSuccess) {
-            Button("OK") { }
-        } message: {
-            Text("Today's log saved successfully!")
-        }
         .alert("Error", isPresented: $showingError) {
             Button("OK") { }
-            Button("Retry") {
-                saveLog()
-            }
         } message: {
             Text(errorMessage)
+        }
+        .alert("Success", isPresented: $showingSuccess) {
+            Button("OK") { }
+        } message: {
+            Text("Log saved successfully!")
+        }
+        .onAppear {
+            initializeStates()
         }
     }
     
@@ -112,7 +113,7 @@ struct ProtocolDetailView: View {
     }
     
     private func saveLog() {
-        isSaving = true
+        isLoading = true
         
         apiService.saveProtocolLog(
             protocolId: protocol.id,
@@ -120,10 +121,10 @@ struct ProtocolDetailView: View {
             notes: compoundNotes
         ) { result in
             DispatchQueue.main.async {
-                isSaving = false
+                isLoading = false
                 switch result {
                 case .success:
-                    showingSaveSuccess = true
+                    showingSuccess = true
                 case .failure(let error):
                     errorMessage = error.localizedDescription
                     showingError = true

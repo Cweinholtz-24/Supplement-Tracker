@@ -39,33 +39,16 @@ struct DashboardView: View {
                     }
                     .padding(.top, 60)
                 } else {
-                    List(protocols) { protocol in
-                        NavigationLink(destination: ProtocolDetailView(protocol: protocol)) {
-                            VStack(alignment: .leading, spacing: 8) {
-                                Text(protocol.name)
-                                    .font(.headline)
-                                    .fontWeight(.semibold)
-                                
-                                Text("\(protocol.compounds.count) compounds")
-                                    .font(.caption)
-                                    .foregroundColor(.secondary)
-                                
-                                if !protocol.compounds.isEmpty {
-                                    Text(protocol.compounds.joined(separator: ", "))
-                                        .font(.caption)
-                                        .foregroundColor(.blue)
-                                        .lineLimit(2)
-                                }
-                            }
-                            .padding(.vertical, 4)
+                    List(protocols) { protocolItem in
+                        NavigationLink(destination: ProtocolDetailView(protocol: protocolItem)) {
+                            ProtocolRowView(protocol: protocolItem)
                         }
                     }
-                    .listStyle(PlainListStyle())
                 }
                 
                 Spacer()
             }
-            .navigationTitle("Protocols")
+            .navigationTitle("My Protocols")
             .navigationBarTitleDisplayMode(.large)
             .toolbar {
                 ToolbarItem(placement: .navigationBarTrailing) {
@@ -75,17 +58,14 @@ struct DashboardView: View {
                     .foregroundColor(.red)
                 }
             }
-            .onAppear {
-                loadProtocols()
-            }
             .alert("Error", isPresented: $showingError) {
                 Button("OK") { }
-                Button("Retry") {
-                    loadProtocols()
-                }
             } message: {
                 Text(errorMessage)
             }
+        }
+        .onAppear {
+            loadProtocols()
         }
     }
     
@@ -103,6 +83,30 @@ struct DashboardView: View {
                 }
             }
         }
+    }
+}
+
+struct ProtocolRowView: View {
+    let protocol: ProtocolModel
+    
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text(protocol.name)
+                .font(.headline)
+                .fontWeight(.semibold)
+            
+            Text("\(protocol.compounds.count) compounds • \(protocol.frequency)")
+                .font(.subheadline)
+                .foregroundColor(.secondary)
+            
+            if !protocol.description.isEmpty {
+                Text(protocol.description)
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+                    .lineLimit(2)
+            }
+        }
+        .padding(.vertical, 4)
     }
 }
 
