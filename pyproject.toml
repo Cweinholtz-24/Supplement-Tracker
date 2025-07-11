@@ -13,6 +13,7 @@ flask-login = "^0.6.3"
 werkzeug = "^3.1.3"
 pyotp = "^2.9.0"
 qrcode = "^8.2"
+pillow = "^11.3.0"
 
 [tool.pyright]
 # https://github.com/microsoft/pyright/blob/main/docs/configuration.md

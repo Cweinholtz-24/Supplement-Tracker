@@ -616,33 +616,73 @@ def twofa_setup():
     if not username:
         flash("Session expired. Please login again.", "error")
         return redirect(url_for("login"))
+    
     data = load_data(username)
-    uri = pyotp.TOTP(data["2fa_secret"]).provisioning_uri(
-        name=username,
-        issuer_name="SupplementTracker"
-    )
-    img = qrcode.make(uri)
-    buf = io.BytesIO()
-    img.save(buf, format="PNG")
-    buf.seek(0)
-    encoded = base64.b64encode(buf.read()).decode()
+    if not data.get("2fa_secret"):
+        flash("2FA secret not found. Please try registering again.", "error")
+        return redirect(url_for("register"))
     
-    setup_template = """
-    <div class="container">
-      <div class="card" style="max-width: 500px; margin: 80px auto; text-align: center;">
-        <h2>🔐 Set Up Two-Factor Authentication</h2>
-        <p>Scan this QR code with Google Authenticator or similar app:</p>
-        <img src='data:image/png;base64,{qr_code}' style="border: 1px solid var(--border); border-radius: 8px; margin: 20px 0;">
-        <div style="background: var(--bg); padding: 16px; border-radius: 8px; margin: 20px 0;">
-          <p><strong>Manual entry code:</strong></p>
-          <code style="font-size: 16px; font-weight: bold; color: var(--primary);">{secret}</code>
+    try:
+        # Create QR code
+        uri = pyotp.TOTP(data["2fa_secret"]).provisioning_uri(
+            name=username,
+            issuer_name="SupplementTracker"
+        )
+        
+        # Generate QR code image
+        qr = qrcode.QRCode(
+            version=1,
+            error_correction=qrcode.constants.ERROR_CORRECT_L,
+            box_size=10,
+            border=4,
+        )
+        qr.add_data(uri)
+        qr.make(fit=True)
+        
+        img = qr.make_image(fill_color="black", back_color="white")
+        buf = io.BytesIO()
+        img.save(buf, format="PNG")
+        buf.seek(0)
+        encoded = base64.b64encode(buf.read()).decode()
+        
+        setup_template = """
+        <div class="container">
+          <div class="card" style="max-width: 600px; margin: 40px auto; text-align: center;">
+            <h2>🔐 Set Up Two-Factor Authentication</h2>
+            <p style="margin-bottom: 24px;">Scan this QR code with Google Authenticator, Authy, or any compatible 2FA app:</p>
+            
+            <div style="background: white; padding: 20px; border-radius: 12px; margin: 20px auto; display: inline-block; box-shadow: var(--shadow);">
+              <img src='data:image/png;base64,{qr_code}' style="max-width: 256px; height: auto;">
+            </div>
+            
+            <div style="background: var(--bg); padding: 20px; border-radius: 12px; margin: 20px 0; border: 2px solid var(--border);">
+              <h3 style="margin: 0 0 12px 0; color: var(--primary);">Manual Entry Code</h3>
+              <p style="margin: 0 0 8px 0; font-size: 14px; opacity: 0.8;">If you can't scan the QR code, enter this code manually:</p>
+              <div style="background: var(--card-bg); padding: 16px; border-radius: 8px; margin: 12px 0;">
+                <code style="font-size: 18px; font-weight: bold; color: var(--primary); letter-spacing: 2px; word-break: break-all;">{secret}</code>
+              </div>
+              <p style="margin: 8px 0 0 0; font-size: 12px; opacity: 0.6;">
+                Account: {username}<br>
+                Issuer: SupplementTracker
+              </p>
+            </div>
+            
+            <div style="margin: 32px 0;">
+              <p style="font-size: 14px; margin-bottom: 16px;">After adding the account to your authenticator app, click below to verify:</p>
+              <a href='/2fa' class="btn-primary" style="display: inline-block; padding: 16px 32px; text-decoration: none; border-radius: 8px; font-size: 16px;">Continue to Verify →</a>
+            </div>
+          </div>
         </div>
-        <a href='/2fa' class="btn-primary" style="display: inline-block; padding: 12px 24px; text-decoration: none; border-radius: 8px;">Continue to Verify →</a>
-      </div>
-    </div>
-    """
-    
-    return render_template_string(THEME_HEADER + setup_template, qr_code=encoded, secret=data['2fa_secret'])
+        """
+        
+        return render_template_string(THEME_HEADER + setup_template, 
+                                    qr_code=encoded, 
+                                    secret=data['2fa_secret'],
+                                    username=username)
+        
+    except Exception as e:
+        flash(f"Error generating 2FA setup: {str(e)}", "error")
+        return redirect(url_for("register"))
 
 @app.route("/admin/2fa_setup")
 def admin_twofa_setup():
@@ -650,33 +690,73 @@ def admin_twofa_setup():
     if not username:
         flash("Session expired. Please login again.", "error")
         return redirect(url_for("admin_login"))
+    
     data = load_admin_data(username)
-    uri = pyotp.TOTP(data["2fa_secret"]).provisioning_uri(
-        name=f"admin_{username}",
-        issuer_name="SupplementTracker-Admin"
-    )
-    img = qrcode.make(uri)
-    buf = io.BytesIO()
-    img.save(buf, format="PNG")
-    buf.seek(0)
-    encoded = base64.b64encode(buf.read()).decode()
+    if not data.get("2fa_secret"):
+        flash("2FA secret not found. Please try registering again.", "error")
+        return redirect(url_for("admin_register"))
     
-    setup_template = """
-    <div class="container">
-      <div class="card" style="max-width: 500px; margin: 80px auto; text-align: center;">
-        <h2>🔐 Set Up Admin Two-Factor Authentication</h2>
-        <p>Scan this QR code with Google Authenticator or similar app:</p>
-        <img src='data:image/png;base64,{qr_code}' style="border: 1px solid var(--border); border-radius: 8px; margin: 20px 0;">
-        <div style="background: var(--bg); padding: 16px; border-radius: 8px; margin: 20px 0;">
-          <p><strong>Manual entry code:</strong></p>
-          <code style="font-size: 16px; font-weight: bold; color: var(--primary);">{secret}</code>
+    try:
+        # Create QR code
+        uri = pyotp.TOTP(data["2fa_secret"]).provisioning_uri(
+            name=f"admin_{username}",
+            issuer_name="SupplementTracker-Admin"
+        )
+        
+        # Generate QR code image
+        qr = qrcode.QRCode(
+            version=1,
+            error_correction=qrcode.constants.ERROR_CORRECT_L,
+            box_size=10,
+            border=4,
+        )
+        qr.add_data(uri)
+        qr.make(fit=True)
+        
+        img = qr.make_image(fill_color="black", back_color="white")
+        buf = io.BytesIO()
+        img.save(buf, format="PNG")
+        buf.seek(0)
+        encoded = base64.b64encode(buf.read()).decode()
+        
+        setup_template = """
+        <div class="container">
+          <div class="card" style="max-width: 600px; margin: 40px auto; text-align: center;">
+            <h2>👑 Set Up Admin Two-Factor Authentication</h2>
+            <p style="margin-bottom: 24px;">Scan this QR code with Google Authenticator, Authy, or any compatible 2FA app:</p>
+            
+            <div style="background: white; padding: 20px; border-radius: 12px; margin: 20px auto; display: inline-block; box-shadow: var(--shadow);">
+              <img src='data:image/png;base64,{qr_code}' style="max-width: 256px; height: auto;">
+            </div>
+            
+            <div style="background: var(--bg); padding: 20px; border-radius: 12px; margin: 20px 0; border: 2px solid var(--border);">
+              <h3 style="margin: 0 0 12px 0; color: var(--primary);">Manual Entry Code</h3>
+              <p style="margin: 0 0 8px 0; font-size: 14px; opacity: 0.8;">If you can't scan the QR code, enter this code manually:</p>
+              <div style="background: var(--card-bg); padding: 16px; border-radius: 8px; margin: 12px 0;">
+                <code style="font-size: 18px; font-weight: bold; color: var(--primary); letter-spacing: 2px; word-break: break-all;">{secret}</code>
+              </div>
+              <p style="margin: 8px 0 0 0; font-size: 12px; opacity: 0.6;">
+                Account: admin_{username}<br>
+                Issuer: SupplementTracker-Admin
+              </p>
+            </div>
+            
+            <div style="margin: 32px 0;">
+              <p style="font-size: 14px; margin-bottom: 16px;">After adding the account to your authenticator app, click below to verify:</p>
+              <a href='/admin/2fa' class="btn-primary" style="display: inline-block; padding: 16px 32px; text-decoration: none; border-radius: 8px; font-size: 16px;">Continue to Verify →</a>
+            </div>
+          </div>
         </div>
-        <a href='/admin/2fa' class="btn-primary" style="display: inline-block; padding: 12px 24px; text-decoration: none; border-radius: 8px;">Continue to Verify →</a>
-      </div>
-    </div>
-    """
-    
-    return render_template_string(THEME_HEADER + setup_template, qr_code=encoded, secret=data['2fa_secret'])
+        """
+        
+        return render_template_string(THEME_HEADER + setup_template, 
+                                    qr_code=encoded, 
+                                    secret=data['2fa_secret'],
+                                    username=username)
+        
+    except Exception as e:
+        flash(f"Error generating admin 2FA setup: {str(e)}", "error")
+        return redirect(url_for("admin_register"))
 
 @app.route("/logout")
 @login_required
