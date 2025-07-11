@@ -234,8 +234,10 @@ def init_db():
             ('maintenance_mode', 'false'),
             ('max_login_attempts', '5'),
             ('session_timeout', '30'),
-            ('password_min_length', '6'),
-            ('require_2fa', 'true')
+            ('password_min_length', '8'),
+            ('require_2fa', 'true'),
+            ('force_2fa_setup', 'true'),
+            ('password_complexity', 'true')
         ]
 
         for key, value in default_configs:
@@ -274,6 +276,40 @@ def get_config_value(key, default=None):
         cursor.execute("SELECT value FROM app_config WHERE key = ?", (key,))
         row = cursor.fetchone()
         return row[0] if row else default
+
+def validate_password_complexity(password):
+    """Validate password meets complexity requirements"""
+    if len(password) < 8:
+        return False, "Password must be at least 8 characters long"
+    
+    has_upper = any(c.isupper() for c in password)
+    has_number = any(c.isdigit() for c in password)
+    has_special = any(c in "!@#$%^&*()_+-=[]{}|;:,.<>?" for c in password)
+    
+    if not has_upper:
+        return False, "Password must contain at least one uppercase letter"
+    if not has_number:
+        return False, "Password must contain at least one number"
+    if not has_special:
+        return False, "Password must contain at least one special character (!@#$%^&*()_+-=[]{}|;:,.<>?)"
+    
+    return True, "Password meets complexity requirements"
+
+def user_has_valid_2fa(username):
+    """Check if user has a valid 2FA secret"""
+    with get_db_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute("SELECT twofa_secret FROM users WHERE username = ?", (username,))
+        row = cursor.fetchone()
+        return row and row[0] and len(row[0]) > 10
+
+def admin_has_valid_2fa(username):
+    """Check if admin has a valid 2FA secret"""
+    with get_db_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute("SELECT twofa_secret FROM admins WHERE username = ?", (username,))
+        row = cursor.fetchone()
+        return row and row[0] and len(row[0]) > 10
 
 def log_system_event(log_type, message, severity='info', user_id=None, ip_address=None):
     """Log system events for monitoring"""
@@ -483,10 +519,17 @@ def register():
             flash("Username must be at least 3 characters", "error")
             return render_template_string(THEME_HEADER + AUTH_TEMPLATE, title="Register", action="register")
 
-        min_password_length = int(get_config_value('password_min_length', '6'))
-        if len(password) < min_password_length:
-            flash(f"Password must be at least {min_password_length} characters", "error")
-            return render_template_string(THEME_HEADER + AUTH_TEMPLATE, title="Register", action="register")
+        # Check password complexity if enabled
+        if get_config_value('password_complexity', 'true') == 'true':
+            is_valid, error_msg = validate_password_complexity(password)
+            if not is_valid:
+                flash(error_msg, "error")
+                return render_template_string(THEME_HEADER + AUTH_TEMPLATE, title="Register", action="register")
+        else:
+            min_password_length = int(get_config_value('password_min_length', '8'))
+            if len(password) < min_password_length:
+                flash(f"Password must be at least {min_password_length} characters", "error")
+                return render_template_string(THEME_HEADER + AUTH_TEMPLATE, title="Register", action="register")
 
         with get_db_connection() as conn:
             cursor = conn.cursor()
@@ -528,10 +571,17 @@ def admin_register():
             flash("Username must be at least 3 characters", "error")
             return render_template_string(THEME_HEADER + ADMIN_AUTH_TEMPLATE, title="Admin Register", action="admin/register")
 
-        min_password_length = int(get_config_value('password_min_length', '6'))
-        if len(password) < min_password_length:
-            flash(f"Password must be at least {min_password_length} characters", "error")
-            return render_template_string(THEME_HEADER + ADMIN_AUTH_TEMPLATE, title="Admin Register", action="admin/register")
+        # Check password complexity if enabled
+        if get_config_value('password_complexity', 'true') == 'true':
+            is_valid, error_msg = validate_password_complexity(password)
+            if not is_valid:
+                flash(error_msg, "error")
+                return render_template_string(THEME_HEADER + ADMIN_AUTH_TEMPLATE, title="Admin Register", action="admin/register")
+        else:
+            min_password_length = int(get_config_value('password_min_length', '8'))
+            if len(password) < min_password_length:
+                flash(f"Password must be at least {min_password_length} characters", "error")
+                return render_template_string(THEME_HEADER + ADMIN_AUTH_TEMPLATE, title="Admin Register", action="admin/register")
 
         if role not in ["Super Admin", "Admin", "Operator"]:
             flash("Invalid role selected", "error")
@@ -722,6 +772,26 @@ def admin_required(f):
     decorated_function.__name__ = f.__name__
     return decorated_function
 
+def require_2fa_setup(f):
+    """Decorator to force 2FA setup if not completed"""
+    def decorated_function(*args, **kwargs):
+        if get_config_value('force_2fa_setup', 'true') == 'true':
+            if current_user.is_authenticated:
+                # Check if this is an admin user
+                if hasattr(current_user, 'role'):
+                    if not admin_has_valid_2fa(current_user.username):
+                        if request.endpoint not in ['admin_twofa_setup', 'admin_logout', 'admin_2fa_setup_complete']:
+                            flash("Please complete 2FA setup before continuing", "warning")
+                            return redirect(url_for("admin_twofa_setup"))
+                else:
+                    if not user_has_valid_2fa(current_user.id):
+                        if request.endpoint not in ['twofa_setup', 'logout', 'twofa_setup_complete']:
+                            flash("Please complete 2FA setup before continuing", "warning")
+                            return redirect(url_for("twofa_setup"))
+        return f(*args, **kwargs)
+    decorated_function.__name__ = f.__name__
+    return decorated_function
+
 def super_admin_required(f):
     """Decorator to require super admin authentication"""
     def decorated_function(*args, **kwargs):
@@ -731,6 +801,51 @@ def super_admin_required(f):
         return f(*args, **kwargs)
     decorated_function.__name__ = f.__name__
     return decorated_function
+
+@app.route("/2fa_setup_complete", methods=["POST"])
+def twofa_setup_complete():
+    username = session.get("pending_user")
+    if not username:
+        flash("Session expired. Please login again.", "error")
+        return redirect(url_for("login"))
+
+    code = request.form.get("code")
+    if not code or len(code) != 6:
+        flash("Please enter a valid 6-digit code", "error")
+        return redirect(url_for("twofa_setup"))
+
+    data = load_data(username)
+    if pyotp.TOTP(data["2fa_secret"]).verify(code):
+        login_user(User(username))
+        session.pop("pending_user")
+        flash("2FA setup completed successfully!", "success")
+        return redirect(url_for("dashboard"))
+    else:
+        flash("Invalid 2FA code. Please try again.", "error")
+        return redirect(url_for("twofa_setup"))
+
+@app.route("/admin/2fa_setup_complete", methods=["POST"])
+def admin_twofa_setup_complete():
+    username = session.get("pending_admin")
+    if not username:
+        flash("Session expired. Please login again.", "error")
+        return redirect(url_for("admin_login"))
+
+    code = request.form.get("code")
+    if not code or len(code) != 6:
+        flash("Please enter a valid 6-digit code", "error")
+        return redirect(url_for("admin_twofa_setup"))
+
+    data = load_admin_data(username)
+    if pyotp.TOTP(data["2fa_secret"]).verify(code):
+        admin = Admin.get(username)
+        login_user(admin)
+        session.pop("pending_admin")
+        flash("Admin 2FA setup completed successfully!", "success")
+        return redirect(url_for("admin_dashboard"))
+    else:
+        flash("Invalid 2FA code. Please try again.", "error")
+        return redirect(url_for("admin_twofa_setup"))
 
 @app.route("/2fa_setup")
 def twofa_setup():
@@ -768,7 +883,8 @@ def twofa_setup():
         return render_template_string(THEME_HEADER + TWOFA_SETUP_TEMPLATE,
                                     qr_code=encoded, 
                                     secret=data['2fa_secret'],
-                                    username=username)
+                                    username=username,
+                                    is_forced=True)
 
     except Exception as e:
         flash(f"Error generating 2FA setup: {str(e)}", "error")
@@ -810,7 +926,8 @@ def admin_twofa_setup():
         return render_template_string(THEME_HEADER + ADMIN_TWOFA_SETUP_TEMPLATE,
                                     qr_code=encoded, 
                                     secret=data['2fa_secret'],
-                                    username=username)
+                                    username=username,
+                                    is_forced=True)
 
     except Exception as e:
         flash(f"Error generating admin 2FA setup: {str(e)}", "error")
@@ -831,6 +948,7 @@ def admin_logout():
 @app.route("/admin/dashboard")
 @login_required
 @admin_required
+@require_2fa_setup
 def admin_dashboard():
     with get_db_connection() as conn:
         cursor = conn.cursor()
@@ -905,7 +1023,7 @@ def update_config():
                 ''', (key, value, current_user.username))
 
         # Handle boolean configs
-        for key in ["email_reminders_enabled", "registration_enabled", "data_export_enabled", "analytics_enabled", "maintenance_mode", "require_2fa"]:
+        for key in ["email_reminders_enabled", "registration_enabled", "data_export_enabled", "analytics_enabled", "maintenance_mode", "require_2fa", "force_2fa_setup", "password_complexity"]:
             value = "true" if request.form.get(key) == "on" else "false"
             cursor.execute('''
                 INSERT OR REPLACE INTO app_config (key, value, updated_at, updated_by)
@@ -1116,6 +1234,13 @@ def edit_user(user_id):
             new_password = request.form.get("new_password", "").strip()
             
             if new_password:
+                # Validate password complexity if enabled
+                if get_config_value('password_complexity', 'true') == 'true':
+                    is_valid, error_msg = validate_password_complexity(new_password)
+                    if not is_valid:
+                        flash(error_msg, "error")
+                        return render_template_string(THEME_HEADER + EDIT_USER_TEMPLATE, user=user, user_id=user_id)
+                
                 cursor.execute("UPDATE users SET email = ?, password_hash = ? WHERE id = ?", 
                              (new_email, generate_password_hash(new_password), user_id))
                 flash(f"User '{user[0]}' updated with new password", "success")
@@ -1148,12 +1273,14 @@ def delete_admin(username):
 
 @app.route("/")
 @login_required
+@require_2fa_setup
 def dashboard():
     data = load_data()
     return render_template_string(THEME_HEADER + DASHBOARD_TEMPLATE, protocols=data["protocols"].keys(), user=current_user.id)
 
 @app.route("/create", methods=["POST"])
 @login_required
+@require_2fa_setup
 def create_protocol():
     name = request.form.get("protocol_name", "").strip()
     if not name:
@@ -1182,6 +1309,7 @@ def create_protocol():
 
 @app.route("/delete_protocol/<name>", methods=["POST"])
 @login_required
+@require_2fa_setup
 def delete_protocol(name):
     with get_db_connection() as conn:
         cursor = conn.cursor()
@@ -1210,6 +1338,7 @@ def delete_protocol(name):
 
 @app.route("/protocol/<name>", methods=["GET", "POST"])
 @login_required
+@require_2fa_setup
 def tracker(name):
     today = date.today().isoformat()
     data = load_data()
@@ -1231,6 +1360,7 @@ def tracker(name):
 
 @app.route("/protocol/<name>/edit_compounds", methods=["POST"])
 @login_required
+@require_2fa_setup
 def edit_compounds(name):
     data = load_data()
     compounds = request.form.get("new_compounds", "")
@@ -1245,11 +1375,13 @@ def edit_compounds(name):
 
 @app.route("/protocol/<name>/calendar")
 @login_required
+@require_2fa_setup
 def calendar(name):
     return render_template_string(THEME_HEADER + CAL_TEMPLATE, name=name)
 
 @app.route("/protocol/<name>/logs.json")
 @login_required
+@require_2fa_setup
 def logs_json(name):
     logs = []
     prot = load_data()["protocols"][name]
@@ -1271,12 +1403,14 @@ def logs_json(name):
 
 @app.route("/protocol/<name>/history")
 @login_required
+@require_2fa_setup
 def history(name):
     logs = load_data()["protocols"][name]["logs"]
     return render_template_string(THEME_HEADER + HIST_TEMPLATE, name=name, logs=logs)
 
 @app.route("/protocol/<name>/reminder")
 @login_required
+@require_2fa_setup
 def reminder(name):
     if get_config_value('email_reminders_enabled', 'true') != 'true':
         flash("Email reminders are currently disabled", "error")
@@ -1301,6 +1435,7 @@ def reminder(name):
 
 @app.route("/protocol/<name>/analytics")
 @login_required
+@require_2fa_setup
 def analytics(name):
     if get_config_value('analytics_enabled', 'true') != 'true':
         flash("Analytics is currently disabled", "error")
@@ -1351,6 +1486,7 @@ def analytics(name):
 
 @app.route("/protocol/<name>/export/csv")
 @login_required
+@require_2fa_setup
 def export_csv(name):
     if get_config_value('data_export_enabled', 'true') != 'true':
         flash("Data export is currently disabled", "error")
@@ -1384,6 +1520,7 @@ def export_csv(name):
 
 @app.route("/protocol/<name>/enhanced_tracking", methods=["GET", "POST"])
 @login_required
+@require_2fa_setup
 def enhanced_tracking(name):
     today = date.today().isoformat()
     data = load_data()
@@ -1571,6 +1708,14 @@ ADMIN_DASHBOARD_TEMPLATE = """
           <label style="display: flex; align-items: center; gap: 8px;">
             <input type="checkbox" name="require_2fa" {% if config.get('require_2fa') == 'true' %}checked{% endif %}>
             Require 2FA
+          </label>
+          <label style="display: flex; align-items: center; gap: 8px;">
+            <input type="checkbox" name="force_2fa_setup" {% if config.get('force_2fa_setup') == 'true' %}checked{% endif %}>
+            Force 2FA Setup
+          </label>
+          <label style="display: flex; align-items: center; gap: 8px;">
+            <input type="checkbox" name="password_complexity" {% if config.get('password_complexity') == 'true' %}checked{% endif %}>
+            Password Complexity
           </label>
         </div>
       </div>
@@ -1790,6 +1935,12 @@ TWOFA_SETUP_TEMPLATE = """
 <div class="container">
   <div class="card" style="max-width: 600px; margin: 40px auto; text-align: center;">
     <h2>🔐 Set Up Two-Factor Authentication</h2>
+    {% if is_forced %}
+    <div style="background: var(--warning); color: white; padding: 12px 20px; border-radius: 8px; margin-bottom: 24px;">
+      <strong>⚠️ 2FA Setup Required</strong><br>
+      You must complete 2FA setup to continue using the application.
+    </div>
+    {% endif %}
     <p style="margin-bottom: 24px;">Scan this QR code with Google Authenticator, Authy, or any compatible 2FA app:</p>
 
     <div style="background: white; padding: 20px; border-radius: 12px; margin: 20px auto; display: inline-block; box-shadow: var(--shadow);">
@@ -1803,8 +1954,16 @@ TWOFA_SETUP_TEMPLATE = """
       </div>
     </div>
 
-    <div style="margin: 32px 0;">
-      <a href="/2fa" class="btn-primary" style="display: inline-block; padding: 16px 32px; text-decoration: none; border-radius: 8px; font-size: 16px;">Continue to Verify →</a>
+    <div style="margin: 32px 0; background: var(--card-bg); padding: 24px; border-radius: 12px; border: 1px solid var(--border);">
+      <h3 style="margin: 0 0 16px 0; color: var(--primary);">Verify Setup</h3>
+      <p style="margin-bottom: 16px;">Enter the 6-digit code from your authenticator app to complete setup:</p>
+      <form method="POST" action="/2fa_setup_complete">
+        <div style="display: flex; flex-direction: column; align-items: center; gap: 16px;">
+          <input name="code" required placeholder="000000" maxlength="6" 
+                 style="text-align: center; font-size: 24px; letter-spacing: 8px; max-width: 200px;">
+          <button type="submit" class="btn-success" style="padding: 12px 24px;">✅ Complete 2FA Setup</button>
+        </div>
+      </form>
     </div>
   </div>
 </div>
@@ -1814,6 +1973,12 @@ ADMIN_TWOFA_SETUP_TEMPLATE = """
 <div class="container">
   <div class="card" style="max-width: 600px; margin: 40px auto; text-align: center;">
     <h2>👑 Set Up Admin Two-Factor Authentication</h2>
+    {% if is_forced %}
+    <div style="background: var(--warning); color: white; padding: 12px 20px; border-radius: 8px; margin-bottom: 24px;">
+      <strong>⚠️ Admin 2FA Setup Required</strong><br>
+      You must complete 2FA setup to continue using the admin panel.
+    </div>
+    {% endif %}
     <p style="margin-bottom: 24px;">Scan this QR code with Google Authenticator, Authy, or any compatible 2FA app:</p>
 
     <div style="background: white; padding: 20px; border-radius: 12px; margin: 20px auto; display: inline-block; box-shadow: var(--shadow);">
@@ -1827,8 +1992,16 @@ ADMIN_TWOFA_SETUP_TEMPLATE = """
       </div>
     </div>
 
-    <div style="margin: 32px 0;">
-      <a href="/admin/2fa" class="btn-primary" style="display: inline-block; padding: 16px 32px; text-decoration: none; border-radius: 8px; font-size: 16px;">Continue to Verify →</a>
+    <div style="margin: 32px 0; background: var(--card-bg); padding: 24px; border-radius: 12px; border: 1px solid var(--border);">
+      <h3 style="margin: 0 0 16px 0; color: var(--primary);">Verify Setup</h3>
+      <p style="margin-bottom: 16px;">Enter the 6-digit code from your authenticator app to complete setup:</p>
+      <form method="POST" action="/admin/2fa_setup_complete">
+        <div style="display: flex; flex-direction: column; align-items: center; gap: 16px;">
+          <input name="code" required placeholder="000000" maxlength="6" 
+                 style="text-align: center; font-size: 24px; letter-spacing: 8px; max-width: 200px;">
+          <button type="submit" class="btn-success" style="padding: 12px 24px;">✅ Complete Admin 2FA Setup</button>
+        </div>
+      </form>
     </div>
   </div>
 </div>
