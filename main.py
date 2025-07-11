@@ -3226,6 +3226,12 @@ def api_get_user_profile():
     
     return jsonify(profile), 200
 
+@app.route("/manifest.json")
+def manifest():
+    """PWA manifest for app-like experience"""
+    with open("templates/mobile_manifest.json", "r") as f:
+        return jsonify(json.load(f))
+
 # Add CORS headers for iOS app
 @app.after_request
 def after_request(response):
