@@ -13,16 +13,13 @@ struct ContentView: View {
     @State private var isLoggedIn = false
     
     var body: some View {
-        NavigationView {
-            if isLoggedIn {
-                DashboardView()
-                    .environmentObject(apiService)
-            } else {
-                LoginView(isLoggedIn: $isLoggedIn)
-                    .environmentObject(apiService)
-            }
+        if isLoggedIn {
+            DashboardView()
+                .environmentObject(apiService)
+        } else {
+            LoginView(isLoggedIn: $isLoggedIn)
+                .environmentObject(apiService)
         }
-        .navigationViewStyle(StackNavigationViewStyle())
     }
 }
 
@@ -77,7 +74,7 @@ struct DashboardView: View {
             .toolbar {
                 ToolbarItem(placement: .navigationBarTrailing) {
                     Button("Logout") {
-                        // Handle logout
+                        apiService.logout()
                     }
                 }
             }
