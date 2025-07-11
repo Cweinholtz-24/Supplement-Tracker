@@ -9,6 +9,7 @@ import SwiftUI
 
 struct DashboardView: View {
     @EnvironmentObject var apiService: APIService
+    @MainActor
     @State private var protocols: [ProtocolModel] = []
     @State private var isLoading = false
     @State private var errorMessage = ""
@@ -21,7 +22,7 @@ struct DashboardView: View {
     var body: some View {
         TabView(selection: $selectedTab) {
             // Protocols Tab
-            NavigationView {
+            NavigationStack {
                 VStack {
                     if isLoading {
                         ProgressView("Loading protocols...")
@@ -50,14 +51,16 @@ struct DashboardView: View {
                     ToolbarItem(placement: .navigationBarLeading) {
                         Button(action: { showingNotifications = true }) {
                             Image(systemName: "bell")
-                                .foregroundColor(.blue)
+                                .foregroundStyle(.blue)
                         }
+                        .accessibilityLabel("Notifications")
                     }
                     ToolbarItem(placement: .navigationBarTrailing) {
                         Button(action: { showingCreateProtocol = true }) {
                             Image(systemName: "plus")
-                                .foregroundColor(.blue)
+                                .foregroundStyle(.blue)
                         }
+                        .accessibilityLabel("Create Protocol")
                     }
                 }
             }
@@ -186,7 +189,7 @@ struct CreateProtocolView: View {
     let onProtocolCreated: (ProtocolModel) -> Void
 
     var body: some View {
-        NavigationView {
+        NavigationStack {
             Form {
                 Section(header: Text("Protocol Details")) {
                     TextField("Protocol Name", text: $protocolName)
@@ -278,7 +281,7 @@ struct AnalyticsTabView: View {
     @State private var isLoading = false
 
     var body: some View {
-        NavigationView {
+        NavigationStack {
             VStack {
                 if protocols.isEmpty {
                     Text("No protocols available for analytics")
@@ -446,7 +449,7 @@ struct CompoundStatsRow: View {
 
 struct CalendarTabView: View {
     var body: some View {
-        NavigationView {
+        NavigationStack {
             Text("Calendar View")
                 .navigationTitle("Calendar")
         }
@@ -460,7 +463,7 @@ struct SettingsTabView: View {
     @State private var reminderTime = Date()
 
     var body: some View {
-        NavigationView {
+        NavigationStack {
             Form {
                 Section(header: Text("Notifications")) {
                     Toggle("Enable Notifications", isOn: $notificationsEnabled)
@@ -504,7 +507,7 @@ struct NotificationsView: View {
     @EnvironmentObject var apiService: APIService
 
     var body: some View {
-        NavigationView {
+        NavigationStack {
             List {
                 if apiService.notifications.isEmpty {
                     Text("No notifications")

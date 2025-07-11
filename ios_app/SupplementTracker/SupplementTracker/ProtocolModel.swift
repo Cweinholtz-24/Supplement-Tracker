@@ -123,7 +123,7 @@ struct CompoundStats: Codable {
 }
 
 struct NotificationModel: Identifiable, Codable {
-    let id: Int
+    let id: String
     let title: String
     let message: String
     let type: String

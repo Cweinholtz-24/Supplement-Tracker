@@ -442,7 +442,7 @@ class APIService: ObservableObject {
         }.resume()
     }
     
-    func markNotificationAsRead(notificationId: Int, completion: @escaping (Result<Void, Error>) -> Void) {
+    func markNotificationAsRead(notificationId: String, completion: @escaping (Result<Void, Error>) -> Void) {
         guard let url = URL(string: "\(baseURL)/api/notifications/\(notificationId)/read") else {
             completion(.failure(APIError.invalidURL))
             return
@@ -542,7 +542,7 @@ struct CompoundStats: Codable {
 }
 
 struct NotificationModel: Identifiable, Codable {
-    let id: Int
+    let id: String
     let title: String
     let message: String
     let type: String
