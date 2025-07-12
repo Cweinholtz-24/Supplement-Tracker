@@ -795,7 +795,7 @@ def is_admin():
     return hasattr(current_user, 'role') and current_user.is_authenticated
 
 def admin_required(f):
-    """Decorator to require admin authentication"""
+    """Decorator to require admin authentication"""```python
     def decorated_function(*args, **kwargs):
         if not is_admin():
             flash("Admin access required", "error")
@@ -2509,7 +2509,7 @@ def calculate_user_level(achievements):
     total_points = sum(a["points"] for a in achievements if a["unlocked"])
 
     if total_points >= 1000:
-        return {"level": 5, "title": "Supplement Master"}
+        return {"level": 5, ""title": "Supplement Master"}
     elif total_points >= 500:
         return {"level": 4, "title": "Health Enthusiast"}
     elif total_points >= 200:
