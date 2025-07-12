@@ -831,7 +831,28 @@ class APIService: ObservableObject {
     }
 
     func getDashboardSummary() async throws -> DashboardSummary {
-        let (data, _) = try await URLSession.shared.data(from: URL(string: "\(baseURL)/api/dashboard/summary")!)
+        guard let url = URL(string: "\(baseURL)/api/dashboard/summary") else {
+            throw APIError.invalidURL
+        }
+        
+        let (data, response) = try await URLSession.shared.data(from: url)
+        
+        guard let httpResponse = response as? HTTPURLResponse else {
+            throw APIError.invalidResponse
+        }
+        
+        if httpResponse.statusCode == 401 {
+            DispatchQueue.main.async {
+                self.isAuthenticated = false
+                self.clearAuthToken()
+            }
+            throw APIError.loginFailed
+        }
+        
+        guard httpResponse.statusCode == 200 else {
+            throw APIError.serverError(httpResponse.statusCode)
+        }
+        
         return try JSONDecoder().decode(DashboardSummary.self, from: data)
     }
 

@@ -258,4 +258,84 @@ struct UserLevel: Codable {
     let title: String
     let totalPoints: Int
     let achievements: [Achievement]
+    let nextLevelPoints: Int?
+}
+
+struct HealthKitSupplement: Codable {
+    let name: String
+    let dosage: String
+    let unit: String
+    let taken: Bool
+    let timestamp: String
+}
+
+struct HealthKitSyncRequest: Codable {
+    let supplements: [HealthKitSupplement]
+    let syncDate: String
+}
+
+struct VoiceCommandResponse: Codable {
+    let success: Bool
+    let message: String
+    let action: String
+    let data: [String: Any]?
+    
+    enum CodingKeys: String, CodingKey {
+        case success, message, action, data
+    }
+    
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        success = try container.decode(Bool.self, forKey: .success)
+        message = try container.decode(String.self, forKey: .message)
+        action = try container.decode(String.self, forKey: .action)
+        // Handle data as optional dictionary
+        data = try container.decodeIfPresent([String: Any].self, forKey: .data)
+    }
+}
+
+struct BarcodeScanResult: Codable {
+    let success: Bool
+    let supplement: SupplementInfo?
+    let message: String
+}
+
+struct SupplementInfo: Codable {
+    let name: String
+    let brand: String?
+    let dosage: String
+    let unit: String
+    let servingsPerBottle: Int?
+    let category: String
+}
+
+struct BiomarkerData: Codable {
+    let name: String
+    let value: Double
+    let unit: String
+    let testDate: String
+    let rangeMin: Double?
+    let rangeMax: Double?
+    let notes: String?
+    
+    func toDictionary() -> [String: Any] {
+        var dict: [String: Any] = [
+            "name": name,
+            "value": value,
+            "unit": unit,
+            "testDate": testDate
+        ]
+        
+        if let rangeMin = rangeMin { dict["rangeMin"] = rangeMin }
+        if let rangeMax = rangeMax { dict["rangeMax"] = rangeMax }
+        if let notes = notes { dict["notes"] = notes }
+        
+        return dict
+    }
+}
+
+struct AchievementsData: Codable {
+    let achievements: [Achievement]
+    let totalPoints: Int
+    let level: UserLevel
 }
