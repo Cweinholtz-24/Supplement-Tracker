@@ -339,3 +339,30 @@ struct AchievementsData: Codable {
     let totalPoints: Int
     let level: UserLevel
 }
+
+struct DashboardSummary: Codable {
+    let totalProtocols: Int
+    let activeProtocols: Int
+    let overallAdherence: Double
+    let currentStreak: Int
+    let totalLogs: Int
+    let thisWeekLogs: Int
+    let bestPerformingProtocol: String?
+    let upcomingReminders: Int
+}
+
+struct ProtocolAnalytics: Codable {
+    let totalDays: Int
+    let adherence: Double
+    let streak: Int
+    let missedDays: Int
+    let compoundStats: [String: CompoundStats]
+    let weeklyTrends: [WeeklyTrend]
+    let monthlyTrends: [MonthlyTrend]
+}
+
+struct CompoundStats: Codable {
+    let percentage: Double
+    let totalTaken: Int
+    let totalMissed: Int
+}

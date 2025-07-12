@@ -855,6 +855,114 @@ class APIService: ObservableObject {
         
         return try JSONDecoder().decode(DashboardSummary.self, from: data)
     }
+    
+    func getProtocolAnalytics(protocolId: String) async throws -> ProtocolAnalytics {
+        guard let url = URL(string: "\(baseURL)/api/protocols/\(protocolId)/analytics") else {
+            throw APIError.invalidURL
+        }
+        
+        let (data, response) = try await URLSession.shared.data(from: url)
+        
+        guard let httpResponse = response as? HTTPURLResponse else {
+            throw APIError.invalidResponse
+        }
+        
+        if httpResponse.statusCode == 401 {
+            DispatchQueue.main.async {
+                self.isAuthenticated = false
+                self.clearAuthToken()
+            }
+            throw APIError.loginFailed
+        }
+        
+        guard httpResponse.statusCode == 200 else {
+            throw APIError.serverError(httpResponse.statusCode)
+        }
+        
+        return try JSONDecoder().decode(ProtocolAnalytics.self, from: data)
+    }
+    
+    func fetchAdvancedAnalytics(protocolId: String, completion: @escaping (Result<EnhancedAnalyticsModel, Error>) -> Void) {
+        guard let url = URL(string: "\(baseURL)/api/protocols/\(protocolId)/analytics/advanced") else {
+            completion(.failure(APIError.invalidURL))
+            return
+        }
+        
+        URLSession.shared.dataTask(with: url) { data, response, error in
+            if let error = error {
+                completion(.failure(error))
+                return
+            }
+            
+            guard let data = data,
+                  let httpResponse = response as? HTTPURLResponse else {
+                completion(.failure(APIError.invalidResponse))
+                return
+            }
+            
+            if httpResponse.statusCode == 401 {
+                DispatchQueue.main.async {
+                    self.isAuthenticated = false
+                    self.clearAuthToken()
+                }
+                completion(.failure(APIError.loginFailed))
+                return
+            }
+            
+            guard httpResponse.statusCode == 200 else {
+                completion(.failure(APIError.serverError(httpResponse.statusCode)))
+                return
+            }
+            
+            do {
+                let analytics = try JSONDecoder().decode(EnhancedAnalyticsModel.self, from: data)
+                completion(.success(analytics))
+            } catch {
+                completion(.failure(error))
+            }
+        }.resume()
+    }
+    
+    func fetchProtocolAnalytics(protocolId: String, completion: @escaping (Result<ProtocolAnalytics, Error>) -> Void) {
+        guard let url = URL(string: "\(baseURL)/api/protocols/\(protocolId)/analytics") else {
+            completion(.failure(APIError.invalidURL))
+            return
+        }
+        
+        URLSession.shared.dataTask(with: url) { data, response, error in
+            if let error = error {
+                completion(.failure(error))
+                return
+            }
+            
+            guard let data = data,
+                  let httpResponse = response as? HTTPURLResponse else {
+                completion(.failure(APIError.invalidResponse))
+                return
+            }
+            
+            if httpResponse.statusCode == 401 {
+                DispatchQueue.main.async {
+                    self.isAuthenticated = false
+                    self.clearAuthToken()
+                }
+                completion(.failure(APIError.loginFailed))
+                return
+            }
+            
+            guard httpResponse.statusCode == 200 else {
+                completion(.failure(APIError.serverError(httpResponse.statusCode)))
+                return
+            }
+            
+            do {
+                let analytics = try JSONDecoder().decode(ProtocolAnalytics.self, from: data)
+                completion(.success(analytics))
+            } catch {
+                completion(.failure(error))
+            }
+        }.resume()
+    }
 
     func saveEnhancedTracking(protocolId: String, trackingData: EnhancedTrackingData) async throws {
         let data = try JSONEncoder().encode(trackingData)

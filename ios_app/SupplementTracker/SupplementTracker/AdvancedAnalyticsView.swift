@@ -76,22 +76,9 @@ struct AdvancedAnalyticsView: View {
                             switch advancedResult {
                             case .success(let advanced):
                                 self.analytics = advanced
-                            case .failure(_):
-                                // Fallback to basic analytics
-                                self.analytics = EnhancedAnalyticsModel(
-                                    totalDays: analyticsData.totalDays,
-                                    adherence: analyticsData.adherence,
-                                    streak: analyticsData.streak,
-                                    missedDays: analyticsData.missedDays,
-                                    compoundStats: analyticsData.compoundStats,
-                                    aiInsights: [],
-                                    predictions: PredictionData(nextWeekAdherence: nil, trend: nil, daysToReachGoal: nil),
-                                    correlations: [],
-                                    weeklyTrends: [],
-                                    monthlyTrends: [],
-                                    bestPerformingDay: nil,
-                                    adherencePattern: "good"
-                                )
+                            case .failure(let error):
+                                print("Failed to load advanced analytics: \(error)")
+                                self.errorMessage = "Unable to load advanced analytics. Please try again."
                             }
                         }
                     }

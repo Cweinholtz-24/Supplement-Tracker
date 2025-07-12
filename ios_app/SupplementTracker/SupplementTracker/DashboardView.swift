@@ -108,18 +108,8 @@ struct DashboardView: View {
 
 struct QuickStatsView: View {
     let protocols: [ProtocolModel]
-
-    private var totalProtocols: Int {
-        protocols.count
-    }
-
-    private var activeProtocols: Int {
-        protocols.filter { $0.displayIsActive }.count
-    }
-
-    private var totalCompounds: Int {
-        protocols.reduce(0) { $0 + $1.compounds.count }
-    }
+    @StateObject private var apiService = APIService.shared
+    @State private var dashboardSummary: DashboardSummary?
 
     var body: some View {
         VStack(spacing: 16) {
@@ -127,15 +117,40 @@ struct QuickStatsView: View {
                 .font(.headline)
                 .frame(maxWidth: .infinity, alignment: .leading)
 
-            HStack(spacing: 16) {
-                StatCardView(title: "Total Protocols", value: "\(totalProtocols)", color: .blue)
-                StatCardView(title: "Active", value: "\(activeProtocols)", color: .green)
-                StatCardView(title: "Compounds", value: "\(totalCompounds)", color: .purple)
+            if let summary = dashboardSummary {
+                HStack(spacing: 16) {
+                    StatCardView(title: "Total Protocols", value: "\(summary.totalProtocols)", color: .blue)
+                    StatCardView(title: "Active", value: "\(summary.activeProtocols)", color: .green)
+                    StatCardView(title: "Adherence", value: "\(Int(summary.overallAdherence))%", color: .purple)
+                }
+                
+                HStack(spacing: 16) {
+                    StatCardView(title: "Current Streak", value: "\(summary.currentStreak)", color: .orange)
+                    StatCardView(title: "Total Logs", value: "\(summary.totalLogs)", color: .red)
+                    StatCardView(title: "This Week", value: "\(summary.thisWeekLogs)", color: .mint)
+                }
+            } else {
+                HStack(spacing: 16) {
+                    StatCardView(title: "Total Protocols", value: "\(protocols.count)", color: .blue)
+                    StatCardView(title: "Active", value: "\(protocols.filter { $0.displayIsActive }.count)", color: .green)
+                    StatCardView(title: "Compounds", value: "\(protocols.reduce(0) { $0 + $1.compounds.count })", color: .purple)
+                }
             }
         }
         .padding()
         .background(Color(.systemGray6))
         .cornerRadius(12)
+        .task {
+            await loadDashboardSummary()
+        }
+    }
+    
+    private func loadDashboardSummary() async {
+        do {
+            dashboardSummary = try await apiService.getDashboardSummary()
+        } catch {
+            print("Failed to load dashboard summary: \(error)")
+        }
     }
 }
 
@@ -291,17 +306,34 @@ struct ProtocolCardView: View {
                 Spacer()
 
                 Button(action: {
-                    // Generate sample stats - in real app, fetch from API
-                    let stats = ProtocolStats(
-                        id: protocol.id,
-                        name: protocol.name,
-                        totalDays: 30,
-                        adherence: 85.5,
-                        streak: 7,
-                        weeklyStats: [:],
-                        monthlyStats: [:]
-                    )
-                    onStatsRequested(stats)
+                    Task {
+                        do {
+                            let realStats = try await APIService.shared.getProtocolAnalytics(protocolId: protocol.id)
+                            let stats = ProtocolStats(
+                                id: protocol.id,
+                                name: protocol.name,
+                                totalDays: realStats.totalDays,
+                                adherence: realStats.adherence,
+                                streak: realStats.streak,
+                                weeklyStats: [:],
+                                monthlyStats: [:]
+                            )
+                            onStatsRequested(stats)
+                        } catch {
+                            print("Failed to load protocol stats: \(error)")
+                            // Fallback to basic stats
+                            let stats = ProtocolStats(
+                                id: protocol.id,
+                                name: protocol.name,
+                                totalDays: 0,
+                                adherence: 0,
+                                streak: 0,
+                                weeklyStats: [:],
+                                monthlyStats: [:]
+                            )
+                            onStatsRequested(stats)
+                        }
+                    }
                 }) {
                     Image(systemName: "chart.bar.xaxis")
                         .foregroundColor(.blue)
