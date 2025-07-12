@@ -176,3 +176,86 @@ struct NotificationModel: Identifiable, Codable {
     let isRead: Bool
     let createdAt: String
 }
+
+struct DashboardSummary: Codable {
+    let protocolsToday: Int
+    let completedToday: Int
+    let currentStreak: Int
+    let adherenceRate: Double
+}
+
+struct EnhancedTrackingData: Codable {
+    let mood: String?
+    let energy: String?
+    let sideEffects: String?
+    let weight: String?
+    let sleepHours: Double?
+    let stressLevel: Int?
+    let notes: String?
+}
+
+struct AdvancedAnalytics: Codable {
+    let totalDays: Int
+    let adherence: Double
+    let streak: Int
+    let missedDays: Int
+    let compoundStats: [String: CompoundStats]
+    let aiInsights: [AIInsight]
+    let predictions: PredictionData
+    let correlations: [CorrelationData]
+    let weeklyTrends: [TrendData]
+    let monthlyTrends: [TrendData]
+}
+
+struct AIInsight: Codable {
+    let type: String
+    let title: String
+    let message: String
+    let priority: String
+}
+
+struct PredictionData: Codable {
+    let nextWeekAdherence: Double?
+    let trend: String?
+    let daysToReachGoal: Int?
+}
+
+struct CorrelationData: Codable {
+    let date: String
+    let adherence: Double
+    let mood: String?
+    let energy: String?
+}
+
+struct TrendData: Codable {
+    let week: String?
+    let month: String?
+    let adherence: Double
+}
+
+struct ProtocolTemplate: Codable {
+    let id: String
+    let name: String
+    let description: String
+    let category: String
+    let compounds: [CompoundDetail]
+    let duration: String
+    let difficulty: String
+    let notes: String?
+}
+
+struct Achievement: Codable {
+    let id: String
+    let name: String
+    let description: String
+    let icon: String
+    let points: Int
+    let unlocked: Bool
+}
+
+struct UserLevel: Codable {
+    let level: Int
+    let title: String
+    let totalPoints: Int
+    let achievements: [Achievement]
+}

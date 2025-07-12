@@ -1339,6 +1339,90 @@ def dashboard():
     data = load_data()
     return render_template_string(THEME_HEADER + DASHBOARD_TEMPLATE, protocols=data["protocols"].keys(), user=current_user.id)
 
+@app.route("/dashboard/gamification")
+@login_required
+@require_2fa_setup
+def gamification():
+    """Gamification dashboard with achievements and stats"""
+    return render_template_string(THEME_HEADER + GAMIFICATION_TEMPLATE)
+
+@app.route("/dashboard/templates")
+@login_required
+@require_2fa_setup
+def protocol_templates():
+    """Protocol templates page"""
+    return render_template_string(THEME_HEADER + TEMPLATES_TEMPLATE)
+
+@app.route("/dashboard/barcode-scanner")
+@login_required
+@require_2fa_setup
+def dashboard_barcode_scanner():
+    """Dashboard barcode scanner redirect"""
+    return redirect(url_for("barcode_scanner", name="dashboard"))
+
+@app.route("/dashboard/voice-commands")
+@login_required
+@require_2fa_setup
+def dashboard_voice_commands():
+    """Dashboard voice commands redirect"""
+    return redirect(url_for("voice_commands", name="dashboard"))
+
+@app.route("/dashboard/export-all")
+@login_required
+@require_2fa_setup
+def dashboard_export_all():
+    """Export all user data"""
+    if get_config_value('data_export_enabled', 'true') != 'true':
+        flash("Data export is currently disabled", "error")
+        return redirect(url_for("dashboard"))
+    
+    data = load_data()
+    
+    # Create comprehensive export
+    output = io.StringIO()
+    writer = csv.writer(output)
+    
+    # Export all protocols
+    writer.writerow(["PROTOCOL SUMMARY"])
+    writer.writerow(["Protocol Name", "Compounds", "Total Days Logged", "Overall Adherence"])
+    
+    for protocol_name, protocol_data in data["protocols"].items():
+        compounds = ", ".join([c["name"] if isinstance(c, dict) else c for c in protocol_data["compounds"]])
+        total_days = len(protocol_data["logs"])
+        
+        if total_days > 0:
+            total_taken = sum(sum(1 for entry in day_log.values() if entry.get("taken", False)) 
+                            for day_log in protocol_data["logs"].values())
+            total_possible = total_days * len(protocol_data["compounds"])
+            adherence = round((total_taken / total_possible) * 100, 1) if total_possible > 0 else 0
+        else:
+            adherence = 0
+        
+        writer.writerow([protocol_name, compounds, total_days, f"{adherence}%"])
+    
+    writer.writerow([])
+    
+    # Export detailed logs
+    writer.writerow(["DETAILED LOGS"])
+    writer.writerow(["Date", "Protocol", "Compound", "Taken", "Notes"])
+    
+    for protocol_name, protocol_data in data["protocols"].items():
+        for date_str, day_log in sorted(protocol_data["logs"].items()):
+            for compound, entry in day_log.items():
+                if compound not in ["mood", "energy", "side_effects", "weight", "notes"]:
+                    writer.writerow([
+                        date_str, protocol_name, compound,
+                        "Yes" if entry.get("taken", False) else "No",
+                        entry.get("note", "")
+                    ])
+    
+    output.seek(0)
+    return Response(
+        output.getvalue(),
+        mimetype="text/csv",
+        headers={"Content-Disposition": "attachment; filename=all_supplement_data.csv"}
+    )
+
 @app.route("/create", methods=["POST"])
 @login_required
 @require_2fa_setup
@@ -2177,6 +2261,31 @@ def enhanced_tracking(name):
         if today not in prot["logs"]:
             prot["logs"][today] = {}
 
+        # Save enhanced tracking data to database
+        with get_db_connection() as conn:
+            cursor = conn.cursor()
+            
+            # Get protocol ID
+            cursor.execute("SELECT id FROM protocols WHERE user_id = (SELECT id FROM users WHERE username = ?) AND name = ?", 
+                         (current_user.id, name))
+            protocol_row = cursor.fetchone()
+            if protocol_row:
+                protocol_id = protocol_row[0]
+                
+                # Update protocol logs with enhanced data
+                cursor.execute('''
+                    INSERT OR REPLACE INTO protocol_logs 
+                    (protocol_id, log_date, compound, taken, note, mood, energy, side_effects, weight, general_notes)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ''', (protocol_id, today, "enhanced_tracking", True, "",
+                     request.form.get("mood", ""),
+                     request.form.get("energy", ""),
+                     request.form.get("side_effects", ""),
+                     request.form.get("weight", ""),
+                     request.form.get("general_notes", "")))
+                
+                conn.commit()
+
         prot["logs"][today]["mood"] = request.form.get("mood", "")
         prot["logs"][today]["energy"] = request.form.get("energy", "")
         prot["logs"][today]["side_effects"] = request.form.get("side_effects", "")
@@ -2189,6 +2298,91 @@ def enhanced_tracking(name):
 
     return render_template_string(THEME_HEADER + ENHANCED_TRACKING_TEMPLATE,
                                 name=name, log=prot["logs"].get(today, {}), today=today)
+
+@app.route("/api/protocols/<protocol_id>/enhanced_tracking", methods=["GET", "POST"])
+def api_enhanced_tracking(protocol_id):
+    """API endpoint for enhanced tracking features"""
+    username = session.get('api_username')
+    if not username:
+        return jsonify({"error": "Not authenticated"}), 401
+    
+    if request.method == "POST":
+        data = request.get_json()
+        today = date.today().isoformat()
+        
+        try:
+            with get_db_connection() as conn:
+                cursor = conn.cursor()
+                
+                # Create enhanced_tracking table if it doesn't exist
+                cursor.execute('''
+                    CREATE TABLE IF NOT EXISTS enhanced_tracking (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        user_id INTEGER NOT NULL,
+                        protocol_id TEXT NOT NULL,
+                        tracking_date DATE NOT NULL,
+                        mood TEXT DEFAULT '',
+                        energy TEXT DEFAULT '',
+                        side_effects TEXT DEFAULT '',
+                        weight TEXT DEFAULT '',
+                        sleep_hours REAL DEFAULT 0,
+                        stress_level INTEGER DEFAULT 0,
+                        notes TEXT DEFAULT '',
+                        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                        FOREIGN KEY (user_id) REFERENCES users (id),
+                        UNIQUE(user_id, protocol_id, tracking_date)
+                    )
+                ''')
+                
+                user_id = get_user_id(username)
+                
+                cursor.execute('''
+                    INSERT OR REPLACE INTO enhanced_tracking
+                    (user_id, protocol_id, tracking_date, mood, energy, side_effects, 
+                     weight, sleep_hours, stress_level, notes)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ''', (user_id, protocol_id, today,
+                     data.get('mood', ''), data.get('energy', ''), data.get('sideEffects', ''),
+                     data.get('weight', ''), data.get('sleepHours', 0), data.get('stressLevel', 0),
+                     data.get('notes', '')))
+                
+                conn.commit()
+            
+            return jsonify({"success": True}), 200
+            
+        except Exception as e:
+            return jsonify({"error": str(e)}), 500
+    
+    # GET request
+    try:
+        with get_db_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute('''
+                SELECT tracking_date, mood, energy, side_effects, weight, 
+                       sleep_hours, stress_level, notes
+                FROM enhanced_tracking
+                WHERE user_id = (SELECT id FROM users WHERE username = ?) 
+                AND protocol_id = ?
+                ORDER BY tracking_date DESC LIMIT 30
+            ''', (username, protocol_id))
+            
+            tracking_data = []
+            for row in cursor.fetchall():
+                tracking_data.append({
+                    "date": row[0],
+                    "mood": row[1],
+                    "energy": row[2],
+                    "sideEffects": row[3],
+                    "weight": row[4],
+                    "sleepHours": row[5],
+                    "stressLevel": row[6],
+                    "notes": row[7]
+                })
+            
+            return jsonify(tracking_data), 200
+            
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
 
 from sendgrid import SendGridAPIClient
 from sendgrid.helpers.mail import Mail
@@ -4073,40 +4267,295 @@ new Chart(monthlyCtx, {
 ENHANCED_TRACKING_TEMPLATE = """
 <div class="container">
     <div class="card">
-        <h1>Enhanced Tracking for {{name}} - {{today}}</h1>
+        <h1>📊 Enhanced Tracking for {{name}} - {{today}}</h1>
         <div class="nav-links">
             <a href="/protocol/{{name}}">← Back to Tracking</a>
             <a href="/protocol/{{name}}/analytics">📈 Analytics</a>
-            <a href="/protocol/{{name}}/export/csv">Export CSV</a>
+            <a href="/protocol/{{name}}/export/csv">📤 Export CSV</a>
         </div>
     </div>
 
     <div class="card">
+        <h2>📝 Today's Health Metrics</h2>
         <form method="POST">
+            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 16px;">
+                <div class="form-group">
+                    <label>😊 Mood</label>
+                    <select name="mood">
+                        <option value="">Select mood...</option>
+                        <option value="excellent" {{ 'selected' if log.get('mood') == 'excellent' else '' }}>😄 Excellent</option>
+                        <option value="good" {{ 'selected' if log.get('mood') == 'good' else '' }}>🙂 Good</option>
+                        <option value="neutral" {{ 'selected' if log.get('mood') == 'neutral' else '' }}>😐 Neutral</option>
+                        <option value="poor" {{ 'selected' if log.get('mood') == 'poor' else '' }}>😔 Poor</option>
+                        <option value="terrible" {{ 'selected' if log.get('mood') == 'terrible' else '' }}>😞 Terrible</option>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label>⚡ Energy Level</label>
+                    <select name="energy">
+                        <option value="">Select energy level...</option>
+                        <option value="high" {{ 'selected' if log.get('energy') == 'high' else '' }}>🔋 High</option>
+                        <option value="good" {{ 'selected' if log.get('energy') == 'good' else '' }}>💪 Good</option>
+                        <option value="moderate" {{ 'selected' if log.get('energy') == 'moderate' else '' }}>🚶 Moderate</option>
+                        <option value="low" {{ 'selected' if log.get('energy') == 'low' else '' }}>😴 Low</option>
+                        <option value="exhausted" {{ 'selected' if log.get('energy') == 'exhausted' else '' }}>😵 Exhausted</option>
+                    </select>
+                </div>
+            </div>
+            
+            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 16px;">
+                <div class="form-group">
+                    <label>⚖️ Weight</label>
+                    <input type="text" name="weight" value="{{ log.get('weight', '') }}" placeholder="e.g., 70 kg">
+                </div>
+                <div class="form-group">
+                    <label>😴 Sleep Hours</label>
+                    <input type="number" name="sleep_hours" value="{{ log.get('sleep_hours', '') }}" placeholder="8.5" step="0.5" min="0" max="24">
+                </div>
+            </div>
+            
             <div class="form-group">
-                <label>Mood</label>
-                <input type="text" name="mood" value="{{ log.get('mood', '') }}" placeholder="Enter your mood">
+                <label>⚠️ Side Effects</label>
+                <input type="text" name="side_effects" value="{{ log.get('side_effects', '') }}" placeholder="Any side effects experienced today?">
             </div>
+            
             <div class="form-group">
-                <label>Energy Level</label>
-                <input type="text" name="energy" value="{{ log.get('energy', '') }}" placeholder="Enter your energy level">
+                <label>📝 General Notes</label>
+                <textarea name="general_notes" rows="4" placeholder="How did you feel today? Any observations about your supplements?">{{ log.get('notes', '') }}</textarea>
             </div>
-            <div class="form-group">
-                <label>Side Effects</label>
-                <input type="text" name="side_effects" value="{{ log.get('side_effects', '') }}" placeholder="Any side effects?">
-            </div>
-             <div class="form-group">
-                <label>Weight</label>
-                <input type="text" name="weight" value="{{ log.get('weight', '') }}" placeholder="Enter your weight">
-            </div>
-            <div class="form-group">
-                <label>General Notes</label>
-                <textarea name="general_notes" rows="4" placeholder="General notes about today">{{ log.get('notes', '') }}</textarea>
-            </div>
-            <button type="submit" class="btn-success">Save Enhanced Log</button>
+            
+            <button type="submit" class="btn-success">💾 Save Enhanced Log</button>
         </form>
     </div>
+
+    <div class="card">
+        <h2>📈 Recent Trends</h2>
+        <div id="health-trends">
+            <p style="text-align: center; color: var(--text-muted);">Track for a few days to see trends...</p>
+        </div>
+    </div>
 </div>
+
+<script>
+// Load recent enhanced tracking data
+fetch('/api/protocols/{{name.replace(" ", "_").lower()}}/enhanced_tracking')
+    .then(response => response.json())
+    .then(data => {
+        if (data.length > 1) {
+            let trendsHTML = '<div style="display: grid; gap: 8px;">';
+            data.slice(0, 7).forEach(entry => {
+                trendsHTML += `
+                    <div style="background: var(--bg); padding: 12px; border-radius: 6px; border-left: 3px solid var(--primary);">
+                        <strong>${entry.date}</strong>
+                        <div style="margin-top: 8px; display: flex; gap: 16px; flex-wrap: wrap;">
+                            ${entry.mood ? `<span>😊 ${entry.mood}</span>` : ''}
+                            ${entry.energy ? `<span>⚡ ${entry.energy}</span>` : ''}
+                            ${entry.weight ? `<span>⚖️ ${entry.weight}</span>` : ''}
+                            ${entry.sleepHours ? `<span>😴 ${entry.sleepHours}h</span>` : ''}
+                        </div>
+                        ${entry.notes ? `<p style="margin: 8px 0 0 0; color: var(--text-secondary); font-style: italic;">"${entry.notes}"</p>` : ''}
+                    </div>
+                `;
+            });
+            trendsHTML += '</div>';
+            document.getElementById('health-trends').innerHTML = trendsHTML;
+        }
+    })
+    .catch(error => console.log('Enhanced tracking data not available'));
+</script>
+"""
+
+GAMIFICATION_TEMPLATE = """
+<div class="container">
+    <div class="card">
+        <h1>🏆 Your Achievements</h1>
+        <div class="nav-links">
+            <a href="/">← Back to Dashboard</a>
+        </div>
+    </div>
+
+    <div class="card">
+        <h2>🎯 Current Level</h2>
+        <div style="text-align: center; padding: 20px;">
+            <div style="background: linear-gradient(135deg, var(--primary), var(--info)); color: white; padding: 24px; border-radius: 12px; margin: 16px 0;">
+                <h2 style="margin: 0; font-size: 2.5rem;">Level 3</h2>
+                <p style="margin: 8px 0 0 0; font-size: 1.2rem;">Consistent Tracker</p>
+                <div style="background: rgba(255,255,255,0.2); border-radius: 10px; height: 12px; margin: 16px 0;">
+                    <div style="background: white; height: 100%; width: 60%; border-radius: 10px;"></div>
+                </div>
+                <small>1,200 / 2,000 points to next level</small>
+            </div>
+        </div>
+    </div>
+
+    <div class="card">
+        <h2>🏅 Achievements</h2>
+        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 16px;">
+            <div style="background: var(--bg); padding: 16px; border-radius: 8px; border-left: 4px solid var(--success);">
+                <div style="display: flex; align-items: center; gap: 12px;">
+                    <span style="font-size: 2rem;">🎯</span>
+                    <div>
+                        <h4 style="margin: 0;">First Steps</h4>
+                        <p style="margin: 4px 0; color: var(--text-secondary);">Created your first protocol</p>
+                        <small style="color: var(--success); font-weight: bold;">✅ UNLOCKED • 50 points</small>
+                    </div>
+                </div>
+            </div>
+            
+            <div style="background: var(--bg); padding: 16px; border-radius: 8px; border-left: 4px solid var(--success);">
+                <div style="display: flex; align-items: center; gap: 12px;">
+                    <span style="font-size: 2rem;">🔥</span>
+                    <div>
+                        <h4 style="margin: 0;">Week Warrior</h4>
+                        <p style="margin: 4px 0; color: var(--text-secondary);">Maintained 7-day streak</p>
+                        <small style="color: var(--success); font-weight: bold;">✅ UNLOCKED • 100 points</small>
+                    </div>
+                </div>
+            </div>
+            
+            <div style="background: var(--bg); padding: 16px; border-radius: 8px; border-left: 4px solid var(--text-muted); opacity: 0.6;">
+                <div style="display: flex; align-items: center; gap: 12px;">
+                    <span style="font-size: 2rem;">👑</span>
+                    <div>
+                        <h4 style="margin: 0;">Monthly Master</h4>
+                        <p style="margin: 4px 0; color: var(--text-secondary);">Maintain 30-day streak</p>
+                        <small style="color: var(--text-muted);">🔒 LOCKED • 500 points</small>
+                    </div>
+                </div>
+            </div>
+            
+            <div style="background: var(--bg); padding: 16px; border-radius: 8px; border-left: 4px solid var(--text-muted); opacity: 0.6;">
+                <div style="display: flex; align-items: center; gap: 12px;">
+                    <span style="font-size: 2rem;">⭐</span>
+                    <div>
+                        <h4 style="margin: 0;">Perfectionist</h4>
+                        <p style="margin: 4px 0; color: var(--text-secondary);">100% adherence for a month</p>
+                        <small style="color: var(--text-muted);">🔒 LOCKED • 200 points</small>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="card">
+        <h2>📊 Statistics</h2>
+        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 16px;">
+            <div style="text-align: center; background: var(--bg); padding: 16px; border-radius: 8px;">
+                <h3 style="margin: 0; color: var(--primary);">7</h3>
+                <p style="margin: 8px 0 0 0;">Current Streak</p>
+            </div>
+            <div style="text-align: center; background: var(--bg); padding: 16px; border-radius: 8px;">
+                <h3 style="margin: 0; color: var(--success);">85%</h3>
+                <p style="margin: 8px 0 0 0;">Overall Adherence</p>
+            </div>
+            <div style="text-align: center; background: var(--bg); padding: 16px; border-radius: 8px;">
+                <h3 style="margin: 0; color: var(--info);">3</h3>
+                <p style="margin: 8px 0 0 0;">Active Protocols</p>
+            </div>
+            <div style="text-align: center; background: var(--bg); padding: 16px; border-radius: 8px;">
+                <h3 style="margin: 0; color: var(--warning);">42</h3>
+                <p style="margin: 8px 0 0 0;">Days Tracked</p>
+            </div>
+        </div>
+    </div>
+</div>
+"""
+
+TEMPLATES_TEMPLATE = """
+<div class="container">
+    <div class="card">
+        <h1>📋 Protocol Templates</h1>
+        <div class="nav-links">
+            <a href="/">← Back to Dashboard</a>
+        </div>
+    </div>
+
+    <div class="card">
+        <h2>🧬 Popular Templates</h2>
+        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 16px;">
+            <div style="background: var(--bg); padding: 20px; border-radius: 8px; border: 1px solid var(--border);">
+                <h3 style="margin: 0 0 8px 0; color: var(--primary);">🧬 Longevity Basics</h3>
+                <p style="color: var(--text-secondary); margin: 8px 0;">Essential compounds for healthy aging</p>
+                <div style="margin: 12px 0;">
+                    <span class="status-badge status-info">Beginner</span>
+                    <span class="status-badge status-success">Ongoing</span>
+                </div>
+                <div style="margin: 12px 0; font-size: 0.9em; color: var(--text);">
+                    <strong>Includes:</strong> NMN, Resveratrol, Vitamin D3
+                </div>
+                <button class="btn-primary" onclick="useTemplate('longevity_basic')">✨ Use Template</button>
+            </div>
+            
+            <div style="background: var(--bg); padding: 20px; border-radius: 8px; border: 1px solid var(--border);">
+                <h3 style="margin: 0 0 8px 0; color: var(--danger);">🔬 Senolytic Cycle</h3>
+                <p style="color: var(--text-secondary); margin: 8px 0;">3-day senolytic protocol for cellular renewal</p>
+                <div style="margin: 12px 0;">
+                    <span class="status-badge status-warning">Advanced</span>
+                    <span class="status-badge status-info">3 Days</span>
+                </div>
+                <div style="margin: 12px 0; font-size: 0.9em; color: var(--text);">
+                    <strong>Includes:</strong> Fisetin, Quercetin, FOXO4-DRI
+                </div>
+                <button class="btn-primary" onclick="useTemplate('senolytic_cycle')">✨ Use Template</button>
+            </div>
+            
+            <div style="background: var(--bg); padding: 20px; border-radius: 8px; border: 1px solid var(--border);">
+                <h3 style="margin: 0 0 8px 0; color: var(--info);">🧠 Cognitive Enhancement</h3>
+                <p style="color: var(--text-secondary); margin: 8px 0;">Supplements for brain health and cognition</p>
+                <div style="margin: 12px 0;">
+                    <span class="status-badge status-info">Intermediate</span>
+                    <span class="status-badge status-success">Ongoing</span>
+                </div>
+                <div style="margin: 12px 0; font-size: 0.9em; color: var(--text);">
+                    <strong>Includes:</strong> Lion's Mane, Bacopa Monnieri, Alpha-GPC
+                </div>
+                <button class="btn-primary" onclick="useTemplate('cognitive_enhancement')">✨ Use Template</button>
+            </div>
+        </div>
+    </div>
+
+    <div class="card">
+        <h2>🎯 Custom Template</h2>
+        <p>Create your own template by setting up a protocol and sharing it with the community.</p>
+        <div class="nav-links">
+            <a href="#create-protocol" class="btn-success">✨ Create Custom Protocol</a>
+        </div>
+    </div>
+</div>
+
+<script>
+function useTemplate(templateId) {
+    // Fetch template data
+    fetch('/api/protocols/templates')
+        .then(response => response.json())
+        .then(templates => {
+            const template = templates.find(t => t.id === templateId);
+            if (template) {
+                const protocolName = prompt(`Enter name for your ${template.name} protocol:`, template.name);
+                if (protocolName) {
+                    // Create protocol from template
+                    fetch('/api/protocols', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({
+                            name: protocolName,
+                            compounds: template.compounds
+                        })
+                    })
+                    .then(response => response.json())
+                    .then(data => {
+                        if (data.id) {
+                            alert(`Protocol "${protocolName}" created successfully!`);
+                            window.location.href = '/';
+                        } else {
+                            alert('Error creating protocol: ' + data.error);
+                        }
+                    });
+                }
+            }
+        });
+}
+</script>
 """
 
 ADMIN_USERS_TEMPLATE = """
@@ -6531,6 +6980,82 @@ def api_add_compound():
         return jsonify({"success": True}), 201
     except Exception as e:
         return jsonify({"error": f"Failed to add compound: {str(e)}"}), 500
+
+@app.route("/api/protocols/<protocol_id>/edit", methods=["PUT"])
+def api_edit_protocol(protocol_id):
+    """API endpoint to edit protocol compounds"""
+    username = session.get('api_username')
+    if not username:
+        return jsonify({"error": "Not authenticated"}), 401
+    
+    data = request.get_json()
+    compounds = data.get('compounds', [])
+    
+    try:
+        user_data = load_data(username)
+        
+        # Find matching protocol
+        matching_protocol = None
+        for pname in user_data.get("protocols", {}):
+            if pname.replace(" ", "_").lower() == protocol_id:
+                matching_protocol = pname
+                break
+        
+        if not matching_protocol:
+            return jsonify({"error": "Protocol not found"}), 404
+        
+        # Update compounds
+        user_data["protocols"][matching_protocol]["compounds"] = compounds
+        save_data(user_data, username)
+        
+        return jsonify({"success": True}), 200
+        
+    except Exception as e:
+        return jsonify({"error": f"Failed to edit protocol: {str(e)}"}), 500
+
+@app.route("/api/dashboard/summary", methods=["GET"])
+def api_dashboard_summary():
+    """API endpoint to get dashboard summary"""
+    username = session.get('api_username')
+    if not username:
+        return jsonify({"error": "Not authenticated"}), 401
+    
+    try:
+        data = load_data(username)
+        today = date.today().isoformat()
+        
+        total_protocols = len(data["protocols"])
+        protocols_due_today = total_protocols
+        completed_today = 0
+        current_streak = 0
+        total_adherence = 0
+        
+        # Calculate stats
+        for protocol in data["protocols"].values():
+            if today in protocol["logs"]:
+                day_log = protocol["logs"][today]
+                if all(entry.get("taken", False) for entry in day_log.values()):
+                    completed_today += 1
+        
+        # Calculate overall adherence
+        total_days = 0
+        total_taken = 0
+        for protocol in data["protocols"].values():
+            for day_log in protocol["logs"].values():
+                total_days += len(day_log)
+                total_taken += sum(1 for entry in day_log.values() if entry.get("taken", False))
+        
+        adherence_rate = round((total_taken / total_days) * 100, 1) if total_days > 0 else 0
+        
+        return jsonify({
+            "protocolsToday": protocols_due_today,
+            "completedToday": completed_today,
+            "currentStreak": current_streak,
+            "adherenceRate": adherence_rate
+        }), 200
+        
+    except Exception as e:
+        return jsonify({"error": f"Failed to fetch dashboard summary: {str(e)}"}), 500
 
 @app.route("/api/protocols/<protocol_id>/analytics/advanced", methods=["GET"])
 def api_get_advanced_analytics(protocol_id):

@@ -464,58 +464,58 @@ class APIService: ObservableObject {
             }
         }.resume()
     }
-    
+
     // MARK: - Advanced Analytics
-    
+
     func fetchProtocolTemplates(completion: @escaping (Result<[ProtocolTemplate], Error>) -> Void) {
         guard let url = URL(string: "\(baseURL)/api/protocols/templates") else {
             completion(.failure(APIError.invalidURL))
             return
         }
-        
+
         performRequest(url: url, method: "GET", body: nil, completion: completion)
     }
-    
+
     func createProtocolFromTemplate(templateId: String, customName: String?, completion: @escaping (Result<ProtocolModel, Error>) -> Void) {
         guard let url = URL(string: "\(baseURL)/api/protocols/from-template") else {
             completion(.failure(APIError.invalidURL))
             return
         }
-        
+
         let requestData = ["templateId": templateId, "customName": customName ?? ""]
         performRequest(url: url, method: "POST", body: requestData, completion: completion)
     }
-    
+
     func syncWearableData(deviceType: String, metrics: [String: Any], completion: @escaping (Result<Void, Error>) -> Void) {
         guard let url = URL(string: "\(baseURL)/api/wearables/sync") else {
             completion(.failure(APIError.invalidURL))
             return
         }
-        
+
         let requestData = ["deviceType": deviceType, "metrics": metrics]
-        
+
         var request = URLRequest(url: url)
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        
+
         do {
             request.httpBody = try JSONSerialization.data(withJSONObject: requestData)
         } catch {
             completion(.failure(error))
             return
         }
-        
+
         URLSession.shared.dataTask(with: request) { _, response, error in
             if let error = error {
                 completion(.failure(error))
                 return
             }
-            
+
             guard let httpResponse = response as? HTTPURLResponse else {
                 completion(.failure(APIError.invalidResponse))
                 return
             }
-            
+
             if httpResponse.statusCode == 200 {
                 completion(.success(()))
             } else {
@@ -523,120 +523,120 @@ class APIService: ObservableObject {
             }
         }.resume()
     }
-    
+
     func saveBiomarkerData(biomarkers: [BiomarkerData], completion: @escaping (Result<Void, Error>) -> Void) {
         guard let url = URL(string: "\(baseURL)/api/biomarkers") else {
             completion(.failure(APIError.invalidURL))
             return
         }
-        
+
         let requestData = ["biomarkers": biomarkers.map { $0.toDictionary() }]
         performVoidRequest(url: url, method: "POST", body: requestData, completion: completion)
     }
-    
+
     func fetchBiomarkers(completion: @escaping (Result<[BiomarkerData], Error>) -> Void) {
         guard let url = URL(string: "\(baseURL)/api/biomarkers") else {
             completion(.failure(APIError.invalidURL))
             return
         }
-        
+
         performRequest(url: url, method: "GET", body: nil, completion: completion)
     }
-    
+
     func processVoiceCommand(command: String, completion: @escaping (Result<VoiceCommandResponse, Error>) -> Void) {
         guard let url = URL(string: "\(baseURL)/api/voice-commands") else {
             completion(.failure(APIError.invalidURL))
             return
         }
-        
+
         let requestData = ["command": command]
         performRequest(url: url, method: "POST", body: requestData, completion: completion)
     }
-    
+
     func scanBarcode(barcode: String, completion: @escaping (Result<BarcodeScanResult, Error>) -> Void) {
         guard let url = URL(string: "\(baseURL)/api/barcode/scan") else {
             completion(.failure(APIError.invalidURL))
             return
         }
-        
+
         let requestData = ["barcode": barcode]
         performRequest(url: url, method: "POST", body: requestData, completion: completion)
     }
-    
+
     func fetchAchievements(completion: @escaping (Result<AchievementsData, Error>) -> Void) {
         guard let url = URL(string: "\(baseURL)/api/gamification/achievements") else {
             completion(.failure(APIError.invalidURL))
             return
         }
-        
+
         performRequest(url: url, method: "GET", body: nil, completion: completion)
     }
-    
+
     func fetchAdvancedAnalytics(protocolId: String, completion: @escaping (Result<EnhancedAnalyticsModel, Error>) -> Void) {
         guard let url = URL(string: "\(baseURL)/api/protocols/\(protocolId)/analytics/advanced") else {
             completion(.failure(APIError.invalidURL))
             return
         }
-        
+
         performRequest(url: url, method: "GET", body: nil, completion: completion)
     }
-    
+
     func createProtocolFromTemplate(templateId: String, customName: String?, completion: @escaping (Result<ProtocolModel, Error>) -> Void) {
         guard let url = URL(string: "\(baseURL)/api/protocols/from-template") else {
             completion(.failure(APIError.invalidURL))
             return
         }
-        
+
         let requestData = ["templateId": templateId, "customName": customName ?? ""]
         performRequest(url: url, method: "POST", body: requestData, completion: completion)
     }
-    
+
     func manageProtocolCycles(protocolId: String, cycleConfig: [String: Any], completion: @escaping (Result<Void, Error>) -> Void) {
         guard let url = URL(string: "\(baseURL)/api/protocols/cycles") else {
             completion(.failure(APIError.invalidURL))
             return
         }
-        
+
         let requestData = ["protocolId": protocolId, "cycleConfig": cycleConfig]
         performVoidRequest(url: url, method: "POST", body: requestData, completion: completion)
     }
-    
+
     func trackSupplementCosts(costs: [SupplementCost], completion: @escaping (Result<Void, Error>) -> Void) {
         guard let url = URL(string: "\(baseURL)/api/protocols/cost-tracking") else {
             completion(.failure(APIError.invalidURL))
             return
         }
-        
+
         let requestData = ["costs": costs.map { $0.toDictionary() }]
         performVoidRequest(url: url, method: "POST", body: requestData, completion: completion)
     }
-    
+
     func setupSmartReminders(protocolId: String, reminderConfig: [String: Any], completion: @escaping (Result<Void, Error>) -> Void) {
         guard let url = URL(string: "\(baseURL)/api/reminders/smart") else {
             completion(.failure(APIError.invalidURL))
             return
         }
-        
+
         let requestData = ["protocolId": protocolId, "reminderConfig": reminderConfig]
         performVoidRequest(url: url, method: "POST", body: requestData, completion: completion)
     }
-    
+
     func exportComprehensiveData(format: String, completion: @escaping (Result<ExportData, Error>) -> Void) {
         guard let url = URL(string: "\(baseURL)/api/export/comprehensive?format=\(format)") else {
             completion(.failure(APIError.invalidURL))
             return
         }
-        
+
         performRequest(url: url, method: "GET", body: nil, completion: completion)
     }
-    
+
     // MARK: - Helper Methods
-    
+
     private func performRequest<T: Codable>(url: URL, method: String, body: [String: Any]?, completion: @escaping (Result<T, Error>) -> Void) {
         var request = URLRequest(url: url)
         request.httpMethod = method
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        
+
         if let body = body {
             do {
                 request.httpBody = try JSONSerialization.data(withJSONObject: body)
@@ -645,19 +645,19 @@ class APIService: ObservableObject {
                 return
             }
         }
-        
+
         URLSession.shared.dataTask(with: request) { data, response, error in
             if let error = error {
                 completion(.failure(error))
                 return
             }
-            
+
             guard let httpResponse = response as? HTTPURLResponse,
                   let data = data else {
                 completion(.failure(APIError.invalidResponse))
                 return
             }
-            
+
             if httpResponse.statusCode == 401 {
                 DispatchQueue.main.async {
                     self.isAuthenticated = false
@@ -666,7 +666,7 @@ class APIService: ObservableObject {
                 completion(.failure(APIError.loginFailed))
                 return
             }
-            
+
             if httpResponse.statusCode == 200 {
                 do {
                     let result = try JSONDecoder().decode(T.self, from: data)
@@ -679,12 +679,12 @@ class APIService: ObservableObject {
             }
         }.resume()
     }
-    
+
     private func performVoidRequest(url: URL, method: String, body: [String: Any]?, completion: @escaping (Result<Void, Error>) -> Void) {
         var request = URLRequest(url: url)
         request.httpMethod = method
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        
+
         if let body = body {
             do {
                 request.httpBody = try JSONSerialization.data(withJSONObject: body)
@@ -693,18 +693,18 @@ class APIService: ObservableObject {
                 return
             }
         }
-        
+
         URLSession.shared.dataTask(with: request) { _, response, error in
             if let error = error {
                 completion(.failure(error))
                 return
             }
-            
+
             guard let httpResponse = response as? HTTPURLResponse else {
                 completion(.failure(APIError.invalidResponse))
                 return
             }
-            
+
             if httpResponse.statusCode == 200 || httpResponse.statusCode == 201 {
                 completion(.success(()))
             } else {
@@ -805,6 +805,88 @@ class APIService: ObservableObject {
 
     private func clearAuthToken() {
         UserDefaults.standard.removeObject(forKey: "auth_token")
+    }
+
+    func syncHealthKitData(_ supplements: [HealthKitSupplement]) async throws {
+        let request = HealthKitSyncRequest(supplements: supplements, syncDate: ISO8601DateFormatter().string(from: Date()))
+
+        let data = try JSONEncoder().encode(request)
+
+        var urlRequest = URLRequest(url: URL(string: "\(baseURL)/api/healthkit/sync")!)
+        urlRequest.httpMethod = "POST"
+        urlRequest.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        urlRequest.httpBody = data
+
+        let (_, response) = try await URLSession.shared.data(for: urlRequest)
+
+        guard let httpResponse = response as? HTTPURLResponse,
+              httpResponse.statusCode == 200 else {
+            throw APIError.invalidResponse
+        }
+    }
+
+    func getAdvancedAnalytics(protocolId: String) async throws -> AdvancedAnalytics {
+        let (data, _) = try await URLSession.shared.data(from: URL(string: "\(baseURL)/api/protocols/\(protocolId)/analytics/advanced")!)
+        return try JSONDecoder().decode(AdvancedAnalytics.self, from: data)
+    }
+
+    func getDashboardSummary() async throws -> DashboardSummary {
+        let (data, _) = try await URLSession.shared.data(from: URL(string: "\(baseURL)/api/dashboard/summary")!)
+        return try JSONDecoder().decode(DashboardSummary.self, from: data)
+    }
+
+    func saveEnhancedTracking(protocolId: String, trackingData: EnhancedTrackingData) async throws {
+        let data = try JSONEncoder().encode(trackingData)
+
+        var request = URLRequest(url: URL(string: "\(baseURL)/api/protocols/\(protocolId)/enhanced_tracking")!)
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.httpBody = data
+
+        let (_, response) = try await URLSession.shared.data(for: request)
+
+        guard let httpResponse = response as? HTTPURLResponse,
+              httpResponse.statusCode == 200 else {
+            throw APIError.invalidResponse
+        }
+    }
+
+    func processVoiceCommand(_ command: String) async throws -> VoiceCommandResponse {
+        let requestData = ["command": command]
+        let data = try JSONSerialization.data(withJSONObject: requestData)
+
+        var request = URLRequest(url: URL(string: "\(baseURL)/api/voice-commands")!)
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.httpBody = data
+
+        let (responseData, response) = try await URLSession.shared.data(for: request)
+
+        guard let httpResponse = response as? HTTPURLResponse,
+              httpResponse.statusCode == 200 else {
+            throw APIError.invalidResponse
+        }
+
+        return try JSONDecoder().decode(VoiceCommandResponse.self, from: responseData)
+    }
+
+    func scanBarcode(_ barcode: String) async throws -> BarcodeScanResult {
+        let requestData = ["barcode": barcode]
+        let data = try JSONSerialization.data(withJSONObject: requestData)
+
+        var request = URLRequest(url: URL(string: "\(baseURL)/api/barcode/scan")!)
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.httpBody = data
+
+        let (responseData, response) = try await URLSession.shared.data(for: request)
+
+        guard let httpResponse = response as? HTTPURLResponse,
+              httpResponse.statusCode == 200 else {
+            throw APIError.invalidResponse
+        }
+
+        return try JSONDecoder().decode(BarcodeScanResult.self, from: responseData)
     }
 }
 
