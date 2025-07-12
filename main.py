@@ -795,7 +795,7 @@ def is_admin():
     return hasattr(current_user, 'role') and current_user.is_authenticated
 
 def admin_required(f):
-    """Decorator to require admin authentication"""```python
+    """Decorator to require admin authentication"""
     def decorated_function(*args, **kwargs):
         if not is_admin():
             flash("Admin access required", "error")
