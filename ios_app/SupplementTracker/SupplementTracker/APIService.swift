@@ -245,7 +245,79 @@ class APIService: ObservableObject {
         }.resume()
     }
     
-    func createProtocol(name: String, compounds: [String], completion: @escaping (Result<ProtocolModel, Error>) -> Void) {
+    func fetchAvailableCompounds(completion: @escaping (Result<[String], Error>) -> Void) {
+        guard let url = URL(string: "\(baseURL)/api/compounds") else {
+            completion(.failure(APIError.invalidURL))
+            return
+        }
+        
+        var request = URLRequest(url: url)
+        request.httpMethod = "GET"
+        
+        URLSession.shared.dataTask(with: request) { data, response, error in
+            if let error = error {
+                completion(.failure(error))
+                return
+            }
+            
+            guard let httpResponse = response as? HTTPURLResponse,
+                  let data = data else {
+                completion(.failure(APIError.invalidResponse))
+                return
+            }
+            
+            if httpResponse.statusCode == 200 {
+                do {
+                    let response = try JSONDecoder().decode(CompoundsResponse.self, from: data)
+                    completion(.success(response.compounds))
+                } catch {
+                    completion(.failure(error))
+                }
+            } else {
+                completion(.failure(APIError.requestFailed))
+            }
+        }.resume()
+    }
+    
+    func addCustomCompound(name: String, completion: @escaping (Result<Void, Error>) -> Void) {
+        guard let url = URL(string: "\(baseURL)/api/compounds") else {
+            completion(.failure(APIError.invalidURL))
+            return
+        }
+        
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        
+        let requestData = AddCompoundRequest(name: name)
+        
+        do {
+            request.httpBody = try JSONEncoder().encode(requestData)
+        } catch {
+            completion(.failure(error))
+            return
+        }
+        
+        URLSession.shared.dataTask(with: request) { data, response, error in
+            if let error = error {
+                completion(.failure(error))
+                return
+            }
+            
+            guard let httpResponse = response as? HTTPURLResponse else {
+                completion(.failure(APIError.invalidResponse))
+                return
+            }
+            
+            if httpResponse.statusCode == 201 {
+                completion(.success(()))
+            } else {
+                completion(.failure(APIError.requestFailed))
+            }
+        }.resume()
+    }
+
+    func createProtocol(name: String, compounds: [CompoundDetail], completion: @escaping (Result<ProtocolModel, Error>) -> Void) {
         guard let url = URL(string: "\(baseURL)/api/protocols") else {
             completion(.failure(APIError.invalidURL))
             return
@@ -302,7 +374,7 @@ class APIService: ObservableObject {
         }.resume()
     }
     
-    func saveProtocolLog(protocolId: String, compounds: [String: Bool], notes: [String: String], completion: @escaping (Result<Void, Error>) -> Void) {
+    func saveProtocolLog(protocolId: String, compounds: [String: Bool], notes: [String: String], dosages: [String: String] = [:], completion: @escaping (Result<Void, Error>) -> Void) {
         guard let url = URL(string: "\(baseURL)/api/protocols/\(protocolId)/log") else {
             completion(.failure(APIError.invalidURL))
             return
@@ -312,7 +384,7 @@ class APIService: ObservableObject {
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         
-        let logData = ProtocolLogRequest(compounds: compounds, notes: notes)
+        let logData = ProtocolLogRequest(compounds: compounds, notes: notes, dosages: dosages)
         
         do {
             request.httpBody = try JSONEncoder().encode(logData)
@@ -519,12 +591,21 @@ struct TwoFARequest: Codable {
 
 struct CreateProtocolRequest: Codable {
     let name: String
+    let compounds: [CompoundDetail]
+}
+
+struct CompoundsResponse: Codable {
     let compounds: [String]
+}
+
+struct AddCompoundRequest: Codable {
+    let name: String
 }
 
 struct ProtocolLogRequest: Codable {
     let compounds: [String: Bool]
     let notes: [String: String]
+    let dosages: [String: String]
 }
 
 struct AnalyticsModel: Codable {

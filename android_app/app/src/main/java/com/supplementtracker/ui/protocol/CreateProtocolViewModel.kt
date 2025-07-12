@@ -1,4 +1,3 @@
-
 package com.supplementtracker.ui.protocol
 
 import androidx.lifecycle.ViewModel
@@ -15,14 +14,39 @@ import javax.inject.Inject
 class CreateProtocolViewModel @Inject constructor(
     private val protocolRepository: ProtocolRepository
 ) : ViewModel() {
-    
-    private val _uiState = MutableStateFlow(UiState<Protocol>())
-    val uiState: StateFlow<UiState<Protocol>> = _uiState.asStateFlow()
-    
-    fun createProtocol(name: String, compounds: List<String>) {
+
+    private val _uiState = MutableStateFlow(CreateProtocolUiState())
+    val uiState: StateFlow<CreateProtocolUiState> = _uiState.asStateFlow()
+
+    private val _availableCompounds = MutableStateFlow<List<String>>(emptyList())
+    val availableCompounds: StateFlow<List<String>> = _availableCompounds.asStateFlow()
+
+    fun loadAvailableCompounds() {
+        viewModelScope.launch {
+            try {
+                val compounds = protocolRepository.getAvailableCompounds()
+                _availableCompounds.value = compounds
+            } catch (e: Exception) {
+                // Handle error silently for now
+            }
+        }
+    }
+
+    fun addCustomCompound(name: String) {
+        viewModelScope.launch {
+            try {
+                protocolRepository.addCustomCompound(name)
+                loadAvailableCompounds()
+            } catch (e: Exception) {
+                // Handle error
+            }
+        }
+    }
+
+    fun createProtocol(name: String, compounds: List<CompoundDetail>) {
         viewModelScope.launch {
             _uiState.value = UiState(loading = true)
-            
+
             protocolRepository.createProtocol(name, compounds)
                 .catch { e ->
                     _uiState.value = UiState(error = e.message ?: "Failed to create protocol")

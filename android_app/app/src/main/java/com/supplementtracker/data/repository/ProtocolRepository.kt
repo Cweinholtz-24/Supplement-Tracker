@@ -1,4 +1,3 @@
-
 package com.supplementtracker.data.repository
 
 import com.supplementtracker.data.model.*
@@ -12,7 +11,7 @@ import javax.inject.Singleton
 class ProtocolRepository @Inject constructor(
     private val apiService: ApiService
 ) {
-    
+
     fun getProtocols(): Flow<Result<List<Protocol>>> = flow {
         try {
             val response = apiService.getProtocols()
@@ -27,22 +26,19 @@ class ProtocolRepository @Inject constructor(
             emit(Result.failure(e))
         }
     }
-    
-    fun createProtocol(name: String, compounds: List<String>): Flow<Result<Protocol>> = flow {
-        try {
-            val response = apiService.createProtocol(CreateProtocolRequest(name, compounds))
-            if (response.isSuccessful) {
-                response.body()?.let { protocol ->
-                    emit(Result.success(protocol))
-                } ?: emit(Result.failure(Exception("Empty response")))
-            } else {
-                emit(Result.failure(Exception("Failed to create protocol: ${response.message()}")))
-            }
-        } catch (e: Exception) {
-            emit(Result.failure(e))
-        }
+
+    suspend fun getAvailableCompounds(): List<String> {
+        return apiService.getAvailableCompounds().compounds
     }
-    
+
+    suspend fun addCustomCompound(name: String) {
+        apiService.addCustomCompound(AddCompoundRequest(name))
+    }
+
+    suspend fun createProtocol(name: String, compounds: List<CompoundDetail>): Protocol {
+        return apiService.createProtocol(CreateProtocolRequest(name, compounds))
+    }
+
     fun saveProtocolLog(
         protocolId: String, 
         compounds: Map<String, Boolean>, 
@@ -62,7 +58,7 @@ class ProtocolRepository @Inject constructor(
             emit(Result.failure(e))
         }
     }
-    
+
     fun getProtocolAnalytics(protocolId: String): Flow<Result<Analytics>> = flow {
         try {
             val response = apiService.getProtocolAnalytics(protocolId)
@@ -77,7 +73,7 @@ class ProtocolRepository @Inject constructor(
             emit(Result.failure(e))
         }
     }
-    
+
     fun getProtocolCalendar(protocolId: String): Flow<Result<List<CalendarEvent>>> = flow {
         try {
             val response = apiService.getProtocolCalendar(protocolId)

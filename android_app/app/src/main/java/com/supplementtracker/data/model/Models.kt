@@ -1,4 +1,3 @@
-
 package com.supplementtracker.data.model
 
 import kotlinx.datetime.LocalDate
@@ -7,6 +6,7 @@ import kotlinx.datetime.TimeZone
 import kotlinx.datetime.todayIn
 import android.os.Parcelable
 import kotlinx.parcelize.Parcelize
+import com.google.gson.annotations.SerializedName
 
 @Parcelize
 data class User(
@@ -15,11 +15,18 @@ data class User(
     val email: String? = null
 ) : Parcelable
 
+data class CompoundDetail(
+    val name: String,
+    @SerializedName("daily_dosage") val dailyDosage: String = "1",
+    @SerializedName("times_per_day") val timesPerDay: Int = 1,
+    val unit: String = "capsule"
+)
+
 @Parcelize
 data class Protocol(
     val id: String,
     val name: String,
-    val compounds: List<String>,
+    val compounds: List<CompoundDetail>,
     val frequency: String = "Daily",
     val description: String? = null,
     val isActive: Boolean = true,
@@ -126,4 +133,12 @@ data class CalendarEvent(
     val missed: Int,
     val completed: Boolean,
     val entries: Map<String, CompoundEntry>
+)
+
+data class CompoundsResponse(
+    val compounds: List<String>
+)
+
+data class AddCompoundRequest(
+    val name: String
 )

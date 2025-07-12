@@ -7,10 +7,32 @@
 
 import Foundation
 
+struct CompoundDetail: Identifiable, Codable, Hashable {
+    let id = UUID()
+    let name: String
+    let dailyDosage: String
+    let timesPerDay: Int
+    let unit: String
+
+    enum CodingKeys: String, CodingKey {
+        case name
+        case dailyDosage = "daily_dosage"
+        case timesPerDay = "times_per_day"
+        case unit
+    }
+
+    init(name: String, dailyDosage: String = "1", timesPerDay: Int = 1, unit: String = "capsule") {
+        self.name = name
+        self.dailyDosage = dailyDosage
+        self.timesPerDay = timesPerDay
+        self.unit = unit
+    }
+}
+
 struct ProtocolModel: Identifiable, Codable {
     let id: String
     let name: String
-    let compounds: [String]
+    let compounds: [CompoundDetail]
     var frequency: String?
     var description: String?
     var isActive: Bool?
@@ -18,8 +40,11 @@ struct ProtocolModel: Identifiable, Codable {
     let updatedAt: String?
     let userId: Int?
 
-    // Custom initializer to handle default values
-    init(id: String, name: String, compounds: [String], frequency: String? = "Daily", description: String? = "", isActive: Bool? = true, createdAt: String? = nil, updatedAt: String? = nil, userId: Int? = nil) {
+    enum CodingKeys: String, CodingKey {
+        case id, name, compounds, frequency, description, isActive, createdAt, updatedAt, userId
+    }
+
+    init(id: String, name: String, compounds: [CompoundDetail], frequency: String? = "Daily", description: String? = "", isActive: Bool? = true, createdAt: String? = nil, updatedAt: String? = nil, userId: Int? = nil) {
         self.id = id
         self.name = name
         self.compounds = compounds
@@ -31,15 +56,36 @@ struct ProtocolModel: Identifiable, Codable {
         self.userId = userId
     }
     
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        id = try container.decode(String.self, forKey: .id)
+        name = try container.decode(String.self, forKey: .name)
+        frequency = try container.decodeIfPresent(String.self, forKey: .frequency) ?? "Daily"
+        description = try container.decodeIfPresent(String.self, forKey: .description) ?? ""
+        isActive = try container.decodeIfPresent(Bool.self, forKey: .isActive) ?? true
+        createdAt = try container.decodeIfPresent(String.self, forKey: .createdAt)
+        updatedAt = try container.decodeIfPresent(String.self, forKey: .updatedAt)
+        userId = try container.decodeIfPresent(Int.self, forKey: .userId)
+
+        // Handle both old format (array of strings) and new format (array of objects)
+        if let compoundObjects = try? container.decode([CompoundDetail].self, forKey: .compounds) {
+            compounds = compoundObjects
+        } else if let compoundStrings = try? container.decode([String].self, forKey: .compounds) {
+            compounds = compoundStrings.map { CompoundDetail(name: $0) }
+        } else {
+            compounds = []
+        }
+    }
+
     // Computed properties for safe access with defaults
     var displayFrequency: String {
         frequency ?? "Daily"
     }
-    
+
     var displayDescription: String {
         description ?? ""
     }
-    
+
     var displayIsActive: Bool {
         isActive ?? true
     }
