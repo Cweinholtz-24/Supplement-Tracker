@@ -226,6 +226,33 @@ def init_db():
             )
         ''')
 
+        # User reminders table
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS user_reminders (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                user_id INTEGER NOT NULL,
+                protocol_id TEXT NOT NULL,
+                reminder_time TEXT NOT NULL,
+                enabled BOOLEAN DEFAULT TRUE,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (user_id) REFERENCES users (id)
+            )
+        ''')
+
+        # Default compounds table
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS default_compounds (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                name TEXT UNIQUE NOT NULL,
+                unit TEXT DEFAULT 'mg',
+                default_dosage TEXT DEFAULT '1',
+                category TEXT DEFAULT 'supplement',
+                description TEXT DEFAULT '',
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                created_by TEXT DEFAULT ''
+            )
+        ''')
+
         # Insert default config values
         default_configs = [
             ('app_name', 'Supplement Tracker'),
@@ -3542,6 +3569,187 @@ def manifest():
     """PWA manifest for app-like experience"""
     with open("templates/mobile_manifest.json", "r") as f:
         return jsonify(json.load(f))
+
+@app.route("/api/compounds/default", methods=["GET"])
+def api_get_default_compounds():
+    """API endpoint to get default compounds list"""
+    try:
+        with get_db_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute("SELECT value FROM app_config WHERE key = 'default_compounds'")
+            row = cursor.fetchone()
+            if row:
+                compounds = json.loads(row[0])
+            else:
+                # Default compound list if not configured
+                compounds = [
+                    {"name": "FOXO4-DRI", "unit": "mg", "defaultDosage": "10"},
+                    {"name": "Fisetin", "unit": "mg", "defaultDosage": "100"},
+                    {"name": "Quercetin", "unit": "mg", "defaultDosage": "500"},
+                    {"name": "Resveratrol", "unit": "mg", "defaultDosage": "250"},
+                    {"name": "Curcumin", "unit": "mg", "defaultDosage": "500"},
+                    {"name": "Pterostilbene", "unit": "mg", "defaultDosage": "50"},
+                    {"name": "Luteolin", "unit": "mg", "defaultDosage": "100"},
+                    {"name": "Apigenin", "unit": "mg", "defaultDosage": "50"}
+                ]
+        return jsonify(compounds), 200
+    except Exception as e:
+        return jsonify({"error": f"Failed to fetch default compounds: {str(e)}"}), 500
+
+@app.route("/admin/compounds", methods=["GET", "POST"])
+@login_required
+@admin_required
+def admin_manage_compounds():
+    """Admin endpoint to manage default compounds"""
+    if request.method == "POST":
+        data = request.get_json()
+        compounds = data.get('compounds', [])
+        
+        with get_db_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute('''
+                INSERT OR REPLACE INTO app_config (key, value, updated_at, updated_by)
+                VALUES (?, ?, CURRENT_TIMESTAMP, ?)
+            ''', ('default_compounds', json.dumps(compounds), current_user.username))
+            conn.commit()
+        
+        return jsonify({"success": True}), 200
+    
+    # GET request
+    try:
+        with get_db_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute("SELECT value FROM app_config WHERE key = 'default_compounds'")
+            row = cursor.fetchone()
+            if row:
+                compounds = json.loads(row[0])
+            else:
+                compounds = []
+        return jsonify(compounds), 200
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+@app.route("/api/protocols/<protocol_id>/stats", methods=["GET"])
+def api_get_protocol_stats(protocol_id):
+    """API endpoint to get detailed protocol statistics"""
+    username = session.get('api_username')
+    if not username:
+        return jsonify({"error": "Not authenticated"}), 401
+    
+    try:
+        data = load_data(username)
+        
+        # Find matching protocol
+        matching_protocol = None
+        for pname in data.get("protocols", {}):
+            if pname.replace(" ", "_").lower() == protocol_id:
+                matching_protocol = pname
+                break
+        
+        if not matching_protocol:
+            return jsonify({"error": "Protocol not found"}), 404
+        
+        prot = data["protocols"][matching_protocol]
+        logs = prot["logs"]
+        
+        # Calculate advanced statistics
+        total_days = len(logs)
+        if total_days == 0:
+            return jsonify({"totalDays": 0, "weeklyStats": [], "monthlyStats": [], "trends": {}}), 200
+        
+        # Weekly statistics
+        weekly_stats = {}
+        monthly_stats = {}
+        
+        for date_str, day_log in logs.items():
+            try:
+                log_date = datetime.strptime(date_str, "%Y-%m-%d").date()
+                week = log_date.strftime("%Y-W%U")
+                month = log_date.strftime("%Y-%m")
+                
+                if week not in weekly_stats:
+                    weekly_stats[week] = {"taken": 0, "total": 0, "days": 0}
+                if month not in monthly_stats:
+                    monthly_stats[month] = {"taken": 0, "total": 0, "days": 0}
+                
+                day_taken = sum(1 for entry in day_log.values() if entry.get("taken", False))
+                day_total = len(day_log)
+                
+                weekly_stats[week]["taken"] += day_taken
+                weekly_stats[week]["total"] += day_total
+                weekly_stats[week]["days"] += 1
+                
+                monthly_stats[month]["taken"] += day_taken
+                monthly_stats[month]["total"] += day_total
+                monthly_stats[month]["days"] += 1
+            except ValueError:
+                continue
+        
+        # Convert to percentages
+        for week_data in weekly_stats.values():
+            week_data["percentage"] = round((week_data["taken"] / week_data["total"]) * 100, 1) if week_data["total"] > 0 else 0
+        
+        for month_data in monthly_stats.values():
+            month_data["percentage"] = round((month_data["taken"] / month_data["total"]) * 100, 1) if month_data["total"] > 0 else 0
+        
+        return jsonify({
+            "totalDays": total_days,
+            "weeklyStats": weekly_stats,
+            "monthlyStats": monthly_stats,
+            "compoundCount": len(prot["compounds"])
+        }), 200
+        
+    except Exception as e:
+        return jsonify({"error": f"Failed to fetch stats: {str(e)}"}), 500
+
+@app.route("/api/reminders", methods=["GET", "POST"])
+def api_manage_reminders():
+    """API endpoint to manage user reminders"""
+    username = session.get('api_username')
+    if not username:
+        return jsonify({"error": "Not authenticated"}), 401
+    
+    if request.method == "POST":
+        data = request.get_json()
+        
+        try:
+            with get_db_connection() as conn:
+                cursor = conn.cursor()
+                cursor.execute('''
+                    INSERT OR REPLACE INTO user_reminders 
+                    (user_id, protocol_id, reminder_time, enabled, created_at)
+                    VALUES (
+                        (SELECT id FROM users WHERE username = ?),
+                        ?, ?, ?, CURRENT_TIMESTAMP
+                    )
+                ''', (username, data.get('protocolId'), data.get('time'), data.get('enabled', True)))
+                conn.commit()
+            
+            return jsonify({"success": True}), 200
+        except Exception as e:
+            return jsonify({"error": str(e)}), 500
+    
+    # GET request
+    try:
+        with get_db_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute('''
+                SELECT protocol_id, reminder_time, enabled
+                FROM user_reminders
+                WHERE user_id = (SELECT id FROM users WHERE username = ?)
+            ''', (username,))
+            
+            reminders = []
+            for row in cursor.fetchall():
+                reminders.append({
+                    "protocolId": row[0],
+                    "time": row[1],
+                    "enabled": bool(row[2])
+                })
+            
+            return jsonify(reminders), 200
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
 
 # Add CORS headers for iOS app
 @app.after_request
