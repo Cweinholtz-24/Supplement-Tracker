@@ -5140,17 +5140,33 @@ def api_save_protocol_log(protocol_id):
         if today not in user_data["protocols"][matching_protocol]["logs"]:
             user_data["protocols"][matching_protocol]["logs"][today] = {}
         
-        # Update compounds
+        # Update compounds - handle both formats
         compounds = data.get('compounds', {})
-        notes = data.get('notes', {})
         
-        for compound, taken in compounds.items():
-            user_data["protocols"][matching_protocol]["logs"][today][compound] = {
+        for compound_name, compound_data in compounds.items():
+            if isinstance(compound_data, bool):
+                # Old format: compounds["name"] = true/false
+                taken = compound_data
+                note = data.get('notes', {}).get(compound_name, "")
+            elif isinstance(compound_data, dict):
+                # New format: compounds["name"] = {"taken": true, "note": "..."}
+                taken = compound_data.get("taken", False)
+                note = compound_data.get("note", "")
+            else:
+                continue
+                
+            user_data["protocols"][matching_protocol]["logs"][today][compound_name] = {
                 "taken": taken,
-                "note": notes.get(compound, "")
+                "note": note,
+                "mood": data.get("mood", ""),
+                "energy": data.get("energy", ""),
+                "side_effects": data.get("sideEffects", ""),
+                "weight": data.get("weight", ""),
+                "notes": data.get("generalNotes", "")
             }
         
         save_data(user_data, username)
+        return jsonify({"success": True}), 200
         
         return jsonify({
             "success": True,
@@ -6965,18 +6981,10 @@ def api_get_compounds():
     try:
         with get_db_connection() as conn:
             cursor = conn.cursor()
-            cursor.execute("SELECT name, unit, default_dosage, category, description FROM default_compounds ORDER BY name")
-            compounds = []
-            for row in cursor.fetchall():
-                compounds.append({
-                    "name": row[0],
-                    "unit": row[1],
-                    "defaultDosage": row[2],
-                    "category": row[3],
-                    "description": row[4]
-                })
+            cursor.execute("SELECT name FROM default_compounds ORDER BY name")
+            compound_names = [row[0] for row in cursor.fetchall()]
             
-            return jsonify({"compounds": compounds}), 200
+            return jsonify({"compounds": compound_names}), 200
     except Exception as e:
         return jsonify({"error": f"Failed to fetch compounds: {str(e)}"}), 500
 
@@ -7385,6 +7393,245 @@ def export_as_csv(data):
         mimetype="text/csv",
         headers={"Content-Disposition": "attachment; filename=supplement_data_export.csv"}
     )
+
+# HTML Templates
+THEME_HEADER = """
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{{ title }} - Supplement Tracker</title>
+    <style>
+        body { font-family: Arial, sans-serif; margin: 0; padding: 20px; background: #f5f5f5; }
+        .container { max-width: 600px; margin: 0 auto; background: white; padding: 20px; border-radius: 8px; box-shadow: 0 2px 10px rgba(0,0,0,0.1); }
+        .form-group { margin-bottom: 15px; }
+        label { display: block; margin-bottom: 5px; font-weight: bold; }
+        input, select, textarea { width: 100%; padding: 8px; border: 1px solid #ddd; border-radius: 4px; box-sizing: border-box; }
+        button { background: #007bff; color: white; padding: 10px 20px; border: none; border-radius: 4px; cursor: pointer; }
+        button:hover { background: #0056b3; }
+        .alert { padding: 10px; margin: 10px 0; border-radius: 4px; }
+        .alert-success { background: #d4edda; color: #155724; border: 1px solid #c3e6cb; }
+        .alert-error { background: #f8d7da; color: #721c24; border: 1px solid #f5c6cb; }
+        .alert-warning { background: #fff3cd; color: #856404; border: 1px solid #ffeaa7; }
+    </style>
+</head>
+<body>
+    <div class="container">
+"""
+
+AUTH_TEMPLATE = """
+        {% with messages = get_flashed_messages() %}
+            {% if messages %}
+                {% for message in messages %}
+                    <div class="alert alert-{{ 'success' if 'success' in message else 'error' }}">{{ message }}</div>
+                {% endfor %}
+            {% endif %}
+        {% endwith %}
+        
+        <h2>{{ title }}</h2>
+        <form method="POST">
+            <div class="form-group">
+                <label for="username">Username:</label>
+                <input type="text" id="username" name="username" required>
+            </div>
+            <div class="form-group">
+                <label for="password">Password:</label>
+                <input type="password" id="password" name="password" required>
+            </div>
+            {% if action == 'admin/register' %}
+            <div class="form-group">
+                <label for="role">Role:</label>
+                <select id="role" name="role">
+                    <option value="Admin">Admin</option>
+                    <option value="Super Admin">Super Admin</option>
+                    <option value="Operator">Operator</option>
+                </select>
+            </div>
+            {% endif %}
+            <button type="submit">{{ title }}</button>
+        </form>
+        
+        {% if action == 'login' %}
+            <p><a href="/register">Don't have an account? Register here</a></p>
+            <p><a href="/admin/login">Admin Login</a></p>
+        {% elif action == 'register' %}
+            <p><a href="/login">Already have an account? Login here</a></p>
+        {% elif action == 'admin/login' %}
+            <p><a href="/admin/register">Register Admin Account</a></p>
+            <p><a href="/login">User Login</a></p>
+        {% elif action == 'admin/register' %}
+            <p><a href="/admin/login">Already have admin account? Login here</a></p>
+        {% endif %}
+    </div>
+</body>
+</html>
+"""
+
+ADMIN_AUTH_TEMPLATE = AUTH_TEMPLATE
+
+TWOFA_TEMPLATE = """
+        {% with messages = get_flashed_messages() %}
+            {% if messages %}
+                {% for message in messages %}
+                    <div class="alert alert-{{ 'success' if 'success' in message else 'error' }}">{{ message }}</div>
+                {% endfor %}
+            {% endif %}
+        {% endwith %}
+        
+        <h2>Two-Factor Authentication</h2>
+        <p>Please enter the 6-digit code from your authenticator app:</p>
+        <form method="POST">
+            <div class="form-group">
+                <label for="code">Authentication Code:</label>
+                <input type="text" id="code" name="code" maxlength="6" pattern="[0-9]{6}" required>
+            </div>
+            <button type="submit">Verify</button>
+        </form>
+    </div>
+</body>
+</html>
+"""
+
+TWOFA_SETUP_TEMPLATE = """
+        <h2>Set Up Two-Factor Authentication</h2>
+        <p>Scan the QR code below with your authenticator app (Google Authenticator, Authy, etc.):</p>
+        <div style="text-align: center; margin: 20px 0;">
+            <img src="data:image/png;base64,{{ qr_code }}" alt="QR Code" style="border: 1px solid #ddd;">
+        </div>
+        <p><strong>Manual Entry Key:</strong> {{ secret }}</p>
+        <p>After adding to your authenticator app, enter a code to complete setup:</p>
+        <form method="POST" action="/2fa_setup_complete">
+            <div class="form-group">
+                <label for="code">Authentication Code:</label>
+                <input type="text" id="code" name="code" maxlength="6" pattern="[0-9]{6}" required>
+            </div>
+            <button type="submit">Complete Setup</button>
+        </form>
+    </div>
+</body>
+</html>
+"""
+
+ADMIN_TWOFA_SETUP_TEMPLATE = """
+        <h2>Admin - Set Up Two-Factor Authentication</h2>
+        <p>Scan the QR code below with your authenticator app (Google Authenticator, Authy, etc.):</p>
+        <div style="text-align: center; margin: 20px 0;">
+            <img src="data:image/png;base64,{{ qr_code }}" alt="QR Code" style="border: 1px solid #ddd;">
+        </div>
+        <p><strong>Manual Entry Key:</strong> {{ secret }}</p>
+        <p>After adding to your authenticator app, enter a code to complete setup:</p>
+        <form method="POST" action="/admin/2fa_setup_complete">
+            <div class="form-group">
+                <label for="code">Authentication Code:</label>
+                <input type="text" id="code" name="code" maxlength="6" pattern="[0-9]{6}" required>
+            </div>
+            <button type="submit">Complete Setup</button>
+        </form>
+    </div>
+</body>
+</html>
+"""
+
+ADMIN_DASHBOARD_TEMPLATE = """
+        <h1>Admin Dashboard</h1>
+        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 20px; margin: 20px 0;">
+            <div style="border: 1px solid #ddd; padding: 15px; border-radius: 5px;">
+                <h3>Statistics</h3>
+                <p>Users: {{ user_count }}</p>
+                <p>Admins: {{ admin_count }}</p>
+                <p>Protocols: {{ protocol_count }}</p>
+            </div>
+            <div style="border: 1px solid #ddd; padding: 15px; border-radius: 5px;">
+                <h3>Quick Actions</h3>
+                <p><a href="/admin/users">Manage Users</a></p>
+                <p><a href="/admin/system_monitoring">System Monitoring</a></p>
+                <p><a href="/admin/export_database">Export Database</a></p>
+            </div>
+        </div>
+        <p><a href="/admin/logout">Logout</a></p>
+    </div>
+</body>
+</html>
+"""
+
+SYSTEM_MONITORING_TEMPLATE = """
+        <h1>System Monitoring</h1>
+        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 20px;">
+            <div style="border: 1px solid #ddd; padding: 15px; border-radius: 5px;">
+                <h3>System Stats</h3>
+                <p>CPU: {{ system_stats.cpu_percent }}%</p>
+                <p>Memory: {{ system_stats.memory_percent }}%</p>
+                <p>Disk: {{ system_stats.disk_percent }}%</p>
+            </div>
+            <div style="border: 1px solid #ddd; padding: 15px; border-radius: 5px;">
+                <h3>Database</h3>
+                <p>Size: {{ db_size }} bytes</p>
+                <p>Active Sessions: {{ active_sessions }}</p>
+            </div>
+        </div>
+        <p><a href="/admin/dashboard">Back to Dashboard</a></p>
+    </div>
+</body>
+</html>
+"""
+
+ADMIN_USERS_TEMPLATE = """
+        <h1>User Management</h1>
+        <table style="width: 100%; border-collapse: collapse; margin: 20px 0;">
+            <thead>
+                <tr style="background: #f8f9fa;">
+                    <th style="border: 1px solid #ddd; padding: 8px;">Username</th>
+                    <th style="border: 1px solid #ddd; padding: 8px;">Email</th>
+                    <th style="border: 1px solid #ddd; padding: 8px;">Protocols</th>
+                    <th style="border: 1px solid #ddd; padding: 8px;">Status</th>
+                    <th style="border: 1px solid #ddd; padding: 8px;">Actions</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for user in users %}
+                <tr>
+                    <td style="border: 1px solid #ddd; padding: 8px;">{{ user[1] }}</td>
+                    <td style="border: 1px solid #ddd; padding: 8px;">{{ user[2] or 'N/A' }}</td>
+                    <td style="border: 1px solid #ddd; padding: 8px;">{{ user[5] }}</td>
+                    <td style="border: 1px solid #ddd; padding: 8px;">
+                        {% if user[6] %}Disabled{% else %}Active{% endif %}
+                    </td>
+                    <td style="border: 1px solid #ddd; padding: 8px;">
+                        <form method="POST" style="display: inline;" action="/admin/users/{{ user[0] }}/{{ 'enable' if user[6] else 'disable' }}">
+                            <button type="submit" style="font-size: 12px; padding: 4px 8px;">
+                                {{ 'Enable' if user[6] else 'Disable' }}
+                            </button>
+                        </form>
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+        <p><a href="/admin/dashboard">Back to Dashboard</a></p>
+    </div>
+</body>
+</html>
+"""
+
+EDIT_USER_TEMPLATE = """
+        <h1>Edit User: {{ user[0] }}</h1>
+        <form method="POST">
+            <div class="form-group">
+                <label for="email">Email:</label>
+                <input type="email" id="email" name="email" value="{{ user[1] or '' }}">
+            </div>
+            <div class="form-group">
+                <label for="new_password">New Password (leave empty to keep current):</label>
+                <input type="password" id="new_password" name="new_password">
+            </div>
+            <button type="submit">Update User</button>
+        </form>
+        <p><a href="/admin/users">Back to User Management</a></p>
+    </div>
+</body>
+</html>
+"""
 
 # Add CORS headers for iOS app
 @app.after_request

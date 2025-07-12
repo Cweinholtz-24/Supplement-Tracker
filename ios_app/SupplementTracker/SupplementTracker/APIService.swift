@@ -13,8 +13,8 @@ import UserNotifications
 class APIService: ObservableObject {
     static let shared = APIService()
 
-    // Your actual Replit app URL
-    private let baseURL = "https://suptidetracker.replit.app"
+    // Local development server URL - change this to your actual server URL
+    private let baseURL = "http://localhost:5000"
 
     @Published var isAuthenticated = false
     @Published var authToken: String?
@@ -854,6 +854,32 @@ class APIService: ObservableObject {
         }
         
         return try JSONDecoder().decode(DashboardSummary.self, from: data)
+    }
+    
+    func getProtocols() async throws -> [ProtocolModel] {
+        guard let url = URL(string: "\(baseURL)/api/protocols") else {
+            throw APIError.invalidURL
+        }
+        
+        let (data, response) = try await URLSession.shared.data(from: url)
+        
+        guard let httpResponse = response as? HTTPURLResponse else {
+            throw APIError.invalidResponse
+        }
+        
+        if httpResponse.statusCode == 401 {
+            DispatchQueue.main.async {
+                self.isAuthenticated = false
+                self.clearAuthToken()
+            }
+            throw APIError.loginFailed
+        }
+        
+        guard httpResponse.statusCode == 200 else {
+            throw APIError.serverError(httpResponse.statusCode)
+        }
+        
+        return try JSONDecoder().decode([ProtocolModel].self, from: data)
     }
     
     func getProtocolAnalytics(protocolId: String) async throws -> ProtocolAnalytics {
