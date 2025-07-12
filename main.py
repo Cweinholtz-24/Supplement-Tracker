@@ -2509,7 +2509,7 @@ def calculate_user_level(achievements):
     total_points = sum(a["points"] for a in achievements if a["unlocked"])
 
     if total_points >= 1000:
-        return {"level": 5, ""title": "Supplement Master"}
+        return {"level": 5, "title": "Supplement Master"}
     elif total_points >= 500:
         return {"level": 4, "title": "Health Enthusiast"}
     elif total_points >= 200:
