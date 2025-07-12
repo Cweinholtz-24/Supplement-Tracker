@@ -2700,14 +2700,21 @@ TRACKER_TEMPLATE = """
           <th>📝 Notes</th>
         </tr>
         {% for c in compounds %}
-          {% set compound_name = c.name if c is mapping else c %}
-          {% set dosage = c.daily_dosage if c is mapping else '1' %}
-          {% set times = c.times_per_day if c is mapping else 1 %}
-          {% set unit = c.unit if c is mapping else 'capsule' %}
+          {% if c is mapping %}
+            {% set compound_name = c.get('name', c) %}
+            {% set dosage = c.get('daily_dosage', '1') %}
+            {% set times = c.get('times_per_day', 1) %}
+            {% set unit = c.get('unit', 'capsule') %}
+          {% else %}
+            {% set compound_name = c %}
+            {% set dosage = '1' %}
+            {% set times = 1 %}
+            {% set unit = 'capsule' %}
+          {% endif %}
           <tr>
             <td><strong>{{compound_name}}</strong></td>
-            <td>{{dosage}}{{unit}}</td>
-            <td>{{times}}x</td>
+            <td>{{dosage}} {{unit}}</td>
+            <td>{{times}}x daily</td>
             <td class="checkbox-cell">
               <input type="checkbox" name="check_{{compound_name}}" 
                      {% if log.get(compound_name, {}).get('taken') %}checked{% endif %}>
@@ -2810,15 +2817,15 @@ TRACKER_TEMPLATE = """
         compoundDiv.className = 'compound-item';
         compoundDiv.style.cssText = 'display: flex; align-items: center; padding: 12px; margin: 8px 0; background: var(--bg); border-radius: 8px; border: 1px solid var(--border);';
         
-        const name = typeof compound === 'string' ? compound : compound.name;
-        const dosage = typeof compound === 'string' ? '1' : compound.daily_dosage || '1';
-        const times = typeof compound === 'string' ? 1 : compound.times_per_day || 1;
-        const unit = typeof compound === 'string' ? 'capsule' : compound.unit || 'capsule';
+        const name = typeof compound === 'string' ? compound : (compound.name || compound);
+        const dosage = typeof compound === 'string' ? '1' : (compound.daily_dosage || '1');
+        const times = typeof compound === 'string' ? 1 : (compound.times_per_day || 1);
+        const unit = typeof compound === 'string' ? 'capsule' : (compound.unit || 'capsule');
         
         compoundDiv.innerHTML = `
           <div style="flex: 1;">
             <strong>${name}</strong><br>
-            <span style="color: var(--text-secondary); font-size: 0.9em;">${dosage}${unit}, ${times}x daily</span>
+            <span style="color: var(--text-secondary); font-size: 0.9em;">${dosage} ${unit}, ${times}x daily</span>
           </div>
           <button type="button" onclick="removeCompound(${index})" class="btn-danger btn-small">🗑️ Remove</button>
         `;
