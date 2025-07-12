@@ -3835,7 +3835,7 @@ def api_mark_notification_read(notification_id):
 
 @app.route("/api/protocols/<protocol_id>/analytics", methods=["GET"])
 def api_get_protocol_analytics(protocol_id):
-    """API endpoint to get protocol analytics"""
+    """API endpoint to get protocol analytics with AI insights"""
     username = session.get('api_username')
     if not username:
         return jsonify({"error": "Not authenticated"}), 401
@@ -3863,24 +3863,72 @@ def api_get_protocol_analytics(protocol_id):
                 "adherence": 0,
                 "streak": 0,
                 "missedDays": 0,
-                "compoundStats": {}
+                "compoundStats": {},
+                "aiInsights": [],
+                "predictions": {},
+                "correlations": [],
+                "weeklyTrends": [],
+                "monthlyTrends": []
             }), 200
         
+        # Basic stats
         compound_stats = {}
+        weekly_data = {}
+        monthly_data = {}
+        mood_energy_correlation = []
+        
         for compound in prot["compounds"]:
+            name = compound if isinstance(compound, str) else compound.get('name', compound)
             taken_count = sum(1 for day_log in logs.values() 
-                             if day_log.get(compound, {}).get("taken", False))
-            compound_stats[compound] = {
+                             if day_log.get(name, {}).get("taken", False))
+            compound_stats[name] = {
                 "taken": taken_count,
                 "missed": total_days - taken_count,
                 "percentage": round((taken_count / total_days) * 100, 1)
             }
+        
+        # Weekly and monthly trends
+        for date_str, day_log in logs.items():
+            try:
+                log_date = datetime.strptime(date_str, "%Y-%m-%d").date()
+                week = log_date.strftime("%Y-W%U")
+                month = log_date.strftime("%Y-%m")
+                
+                day_adherence = sum(1 for entry in day_log.values() if entry.get("taken", False)) / len(day_log) * 100
+                
+                if week not in weekly_data:
+                    weekly_data[week] = []
+                if month not in monthly_data:
+                    monthly_data[month] = []
+                
+                weekly_data[week].append(day_adherence)
+                monthly_data[month].append(day_adherence)
+                
+                # Mood/energy correlation
+                mood = day_log.get('mood', '')
+                energy = day_log.get('energy', '')
+                if mood and energy:
+                    mood_energy_correlation.append({
+                        "date": date_str,
+                        "adherence": day_adherence,
+                        "mood": mood,
+                        "energy": energy
+                    })
+            except ValueError:
+                continue
+        
+        # Calculate weekly and monthly averages
+        weekly_trends = [{"week": week, "adherence": round(sum(values)/len(values), 1)} 
+                        for week, values in weekly_data.items()]
+        monthly_trends = [{"month": month, "adherence": round(sum(values)/len(values), 1)} 
+                         for month, values in monthly_data.items()]
         
         total_possible = total_days * len(prot["compounds"])
         total_taken = sum(sum(1 for entry in day_log.values() if entry.get("taken", False)) 
                          for day_log in logs.values())
         overall_adherence = round((total_taken / total_possible) * 100, 1) if total_possible > 0 else 0
         
+        # Calculate streak
         sorted_dates = sorted(logs.keys(), reverse=True)
         current_streak = 0
         for date_str in sorted_dates:
@@ -3894,17 +3942,185 @@ def api_get_protocol_analytics(protocol_id):
         missed_days = sum(1 for day_log in logs.values() 
                          if not all(entry.get("taken", False) for entry in day_log.values()))
         
+        # AI Insights generation
+        ai_insights = generate_ai_insights(logs, compound_stats, overall_adherence, current_streak)
+        
+        # Predictions
+        predictions = generate_predictions(weekly_trends, monthly_trends, overall_adherence)
+        
         analytics = {
             "totalDays": total_days,
             "adherence": overall_adherence,
             "streak": current_streak,
             "missedDays": missed_days,
-            "compoundStats": compound_stats
+            "compoundStats": compound_stats,
+            "aiInsights": ai_insights,
+            "predictions": predictions,
+            "correlations": mood_energy_correlation,
+            "weeklyTrends": weekly_trends,
+            "monthlyTrends": monthly_trends,
+            "bestPerformingDay": get_best_performing_day(logs),
+            "adherencePattern": analyze_adherence_pattern(logs)
         }
         
         return jsonify(analytics), 200
     except Exception as e:
         return jsonify({"error": f"Failed to fetch analytics: {str(e)}"}), 500
+
+def generate_ai_insights(logs, compound_stats, adherence, streak):
+    """Generate AI-powered insights from user data"""
+    insights = []
+    
+    # Adherence insights
+    if adherence >= 90:
+        insights.append({
+            "type": "success",
+            "title": "Excellent Adherence! 🌟",
+            "message": f"You're maintaining {adherence}% adherence. This consistency will maximize your supplement benefits.",
+            "priority": "high"
+        })
+    elif adherence >= 70:
+        insights.append({
+            "type": "warning",
+            "title": "Good Progress 📈",
+            "message": f"Your {adherence}% adherence is good. Try setting reminders to reach 90%+ for optimal results.",
+            "priority": "medium"
+        })
+    else:
+        insights.append({
+            "type": "alert",
+            "title": "Improvement Needed 🎯",
+            "message": f"Your {adherence}% adherence could be improved. Consider simplifying your protocol or setting up automated reminders.",
+            "priority": "high"
+        })
+    
+    # Streak insights
+    if streak >= 7:
+        insights.append({
+            "type": "achievement",
+            "title": f"Amazing {streak}-Day Streak! 🔥",
+            "message": "Consistent daily habits lead to lasting health benefits. Keep it up!",
+            "priority": "medium"
+        })
+    
+    # Compound-specific insights
+    for compound, stats in compound_stats.items():
+        if stats["percentage"] < 50:
+            insights.append({
+                "type": "suggestion",
+                "title": f"Focus on {compound} 💊",
+                "message": f"You're only taking {compound} {stats['percentage']}% of the time. Consider if this supplement is necessary or set specific reminders.",
+                "priority": "low"
+            })
+    
+    # Pattern-based insights
+    if len(logs) >= 14:
+        recent_logs = list(logs.keys())[-14:]
+        recent_adherence = []
+        for date_str in recent_logs:
+            day_log = logs[date_str]
+            day_adherence = sum(1 for entry in day_log.values() if entry.get("taken", False)) / len(day_log)
+            recent_adherence.append(day_adherence)
+        
+        if len(recent_adherence) >= 7:
+            first_week = sum(recent_adherence[:7]) / 7
+            second_week = sum(recent_adherence[7:14]) / 7
+            
+            if second_week > first_week + 0.1:
+                insights.append({
+                    "type": "trending",
+                    "title": "Improving Trend! 📊",
+                    "message": "Your adherence has improved significantly in the past week. You're building strong habits!",
+                    "priority": "medium"
+                })
+            elif first_week > second_week + 0.1:
+                insights.append({
+                    "type": "warning",
+                    "title": "Declining Pattern 📉",
+                    "message": "Your adherence has decreased recently. Consider what changed and adjust your routine.",
+                    "priority": "high"
+                })
+    
+    return insights
+
+def generate_predictions(weekly_trends, monthly_trends, current_adherence):
+    """Generate predictive analytics"""
+    predictions = {}
+    
+    if len(weekly_trends) >= 4:
+        recent_weeks = [trend["adherence"] for trend in weekly_trends[-4:]]
+        avg_change = sum([recent_weeks[i] - recent_weeks[i-1] for i in range(1, len(recent_weeks))]) / (len(recent_weeks) - 1)
+        
+        next_week_prediction = min(100, max(0, current_adherence + avg_change))
+        predictions["nextWeekAdherence"] = round(next_week_prediction, 1)
+        
+        if avg_change > 2:
+            predictions["trend"] = "improving"
+        elif avg_change < -2:
+            predictions["trend"] = "declining"
+        else:
+            predictions["trend"] = "stable"
+    
+    # Goal achievement prediction
+    target_adherence = 90
+    if current_adherence < target_adherence:
+        days_needed = max(7, (target_adherence - current_adherence) * 2)
+        predictions["daysToReachGoal"] = int(days_needed)
+    
+    return predictions
+
+def get_best_performing_day(logs):
+    """Find the day of the week with best adherence"""
+    day_performance = {}
+    
+    for date_str, day_log in logs.items():
+        try:
+            log_date = datetime.strptime(date_str, "%Y-%m-%d").date()
+            day_of_week = log_date.strftime("%A")
+            
+            day_adherence = sum(1 for entry in day_log.values() if entry.get("taken", False)) / len(day_log)
+            
+            if day_of_week not in day_performance:
+                day_performance[day_of_week] = []
+            day_performance[day_of_week].append(day_adherence)
+        except ValueError:
+            continue
+    
+    if not day_performance:
+        return None
+    
+    day_averages = {day: sum(adherences)/len(adherences) for day, adherences in day_performance.items()}
+    best_day = max(day_averages, key=day_averages.get)
+    
+    return {
+        "day": best_day,
+        "adherence": round(day_averages[best_day] * 100, 1)
+    }
+
+def analyze_adherence_pattern(logs):
+    """Analyze adherence patterns over time"""
+    if len(logs) < 7:
+        return "insufficient_data"
+    
+    recent_week = list(logs.keys())[-7:]
+    adherence_scores = []
+    
+    for date_str in recent_week:
+        day_log = logs[date_str]
+        score = sum(1 for entry in day_log.values() if entry.get("taken", False)) / len(day_log)
+        adherence_scores.append(score)
+    
+    avg_adherence = sum(adherence_scores) / len(adherence_scores)
+    consistency = 1 - (max(adherence_scores) - min(adherence_scores))
+    
+    if avg_adherence >= 0.9 and consistency >= 0.8:
+        return "excellent"
+    elif avg_adherence >= 0.7 and consistency >= 0.6:
+        return "good"
+    elif avg_adherence >= 0.5:
+        return "needs_improvement"
+    else:
+        return "poor"
 
 @app.route("/api/protocols/<protocol_id>/calendar", methods=["GET"])
 def api_get_protocol_calendar(protocol_id):
@@ -4083,9 +4299,270 @@ def admin_manage_compounds():
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
+@app.route("/api/protocols/templates", methods=["GET"])
+def api_get_protocol_templates():
+    """Get pre-built protocol templates"""
+    templates = [
+        {
+            "id": "longevity_basic",
+            "name": "Longevity Basics",
+            "description": "Essential compounds for healthy aging",
+            "category": "longevity",
+            "compounds": [
+                {"name": "NMN", "daily_dosage": "250", "times_per_day": 1, "unit": "mg"},
+                {"name": "Resveratrol", "daily_dosage": "500", "times_per_day": 1, "unit": "mg"},
+                {"name": "Vitamin D3", "daily_dosage": "2000", "times_per_day": 1, "unit": "IU"}
+            ],
+            "duration": "ongoing",
+            "difficulty": "beginner"
+        },
+        {
+            "id": "senolytic_cycle",
+            "name": "Senolytic Cycle",
+            "description": "3-day senolytic protocol for cellular renewal",
+            "category": "senolytics",
+            "compounds": [
+                {"name": "Fisetin", "daily_dosage": "1000", "times_per_day": 2, "unit": "mg"},
+                {"name": "Quercetin", "daily_dosage": "1000", "times_per_day": 2, "unit": "mg"},
+                {"name": "FOXO4-DRI", "daily_dosage": "10", "times_per_day": 1, "unit": "mg"}
+            ],
+            "duration": "3_days",
+            "difficulty": "advanced",
+            "notes": "Take for 3 consecutive days, then rest for 1 month"
+        },
+        {
+            "id": "cognitive_enhancement",
+            "name": "Cognitive Enhancement",
+            "description": "Supplements for brain health and cognition",
+            "category": "nootropics",
+            "compounds": [
+                {"name": "Lion's Mane", "daily_dosage": "1000", "times_per_day": 1, "unit": "mg"},
+                {"name": "Bacopa Monnieri", "daily_dosage": "300", "times_per_day": 1, "unit": "mg"},
+                {"name": "Alpha-GPC", "daily_dosage": "600", "times_per_day": 1, "unit": "mg"}
+            ],
+            "duration": "ongoing",
+            "difficulty": "intermediate"
+        }
+    ]
+    return jsonify(templates), 200
+
+@app.route("/api/protocols/cycles", methods=["GET", "POST"])
+def api_manage_protocol_cycles():
+    """Manage cycling protocols (on/off schedules)"""
+    username = session.get('api_username')
+    if not username:
+        return jsonify({"error": "Not authenticated"}), 401
+    
+    if request.method == "POST":
+        data = request.get_json()
+        protocol_id = data.get('protocolId')
+        cycle_config = data.get('cycleConfig')
+        
+        try:
+            with get_db_connection() as conn:
+                cursor = conn.cursor()
+                cursor.execute('''
+                    CREATE TABLE IF NOT EXISTS protocol_cycles (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        user_id INTEGER NOT NULL,
+                        protocol_id TEXT NOT NULL,
+                        cycle_type TEXT NOT NULL,
+                        on_days INTEGER NOT NULL,
+                        off_days INTEGER NOT NULL,
+                        start_date DATE NOT NULL,
+                        is_active BOOLEAN DEFAULT TRUE,
+                        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                        FOREIGN KEY (user_id) REFERENCES users (id)
+                    )
+                ''')
+                
+                cursor.execute('''
+                    INSERT INTO protocol_cycles 
+                    (user_id, protocol_id, cycle_type, on_days, off_days, start_date)
+                    VALUES ((SELECT id FROM users WHERE username = ?), ?, ?, ?, ?, ?)
+                ''', (username, protocol_id, cycle_config['type'], 
+                     cycle_config['onDays'], cycle_config['offDays'], cycle_config['startDate']))
+                
+                conn.commit()
+            
+            return jsonify({"success": True}), 201
+        except Exception as e:
+            return jsonify({"error": str(e)}), 500
+    
+    # GET cycles
+    try:
+        with get_db_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute('''
+                SELECT protocol_id, cycle_type, on_days, off_days, start_date, is_active
+                FROM protocol_cycles
+                WHERE user_id = (SELECT id FROM users WHERE username = ?) AND is_active = TRUE
+            ''', (username,))
+            
+            cycles = []
+            for row in cursor.fetchall():
+                cycles.append({
+                    "protocolId": row[0],
+                    "cycleType": row[1],
+                    "onDays": row[2],
+                    "offDays": row[3],
+                    "startDate": row[4],
+                    "isActive": bool(row[5])
+                })
+            
+            return jsonify(cycles), 200
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+@app.route("/api/protocols/stacks", methods=["GET", "POST"])
+def api_manage_protocol_stacks():
+    """Manage protocol stacking (combining multiple protocols)"""
+    username = session.get('api_username')
+    if not username:
+        return jsonify({"error": "Not authenticated"}), 401
+    
+    if request.method == "POST":
+        data = request.get_json()
+        stack_name = data.get('name')
+        protocol_ids = data.get('protocolIds', [])
+        interactions = data.get('interactions', [])
+        
+        try:
+            with get_db_connection() as conn:
+                cursor = conn.cursor()
+                cursor.execute('''
+                    CREATE TABLE IF NOT EXISTS protocol_stacks (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        user_id INTEGER NOT NULL,
+                        name TEXT NOT NULL,
+                        protocol_ids TEXT NOT NULL,
+                        interactions TEXT DEFAULT '[]',
+                        warnings TEXT DEFAULT '[]',
+                        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                        FOREIGN KEY (user_id) REFERENCES users (id)
+                    )
+                ''')
+                
+                cursor.execute('''
+                    INSERT INTO protocol_stacks (user_id, name, protocol_ids, interactions)
+                    VALUES ((SELECT id FROM users WHERE username = ?), ?, ?, ?)
+                ''', (username, stack_name, json.dumps(protocol_ids), json.dumps(interactions)))
+                
+                conn.commit()
+            
+            return jsonify({"success": True}), 201
+        except Exception as e:
+            return jsonify({"error": str(e)}), 500
+    
+    # GET stacks
+    try:
+        with get_db_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute('''
+                SELECT name, protocol_ids, interactions, warnings, created_at
+                FROM protocol_stacks
+                WHERE user_id = (SELECT id FROM users WHERE username = ?)
+            ''', (username,))
+            
+            stacks = []
+            for row in cursor.fetchall():
+                stacks.append({
+                    "name": row[0],
+                    "protocolIds": json.loads(row[1]),
+                    "interactions": json.loads(row[2]),
+                    "warnings": json.loads(row[3]),
+                    "createdAt": row[4]
+                })
+            
+            return jsonify(stacks), 200
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+@app.route("/api/protocols/cost-tracking", methods=["GET", "POST"])
+def api_cost_tracking():
+    """Track supplement costs and budgets"""
+    username = session.get('api_username')
+    if not username:
+        return jsonify({"error": "Not authenticated"}), 401
+    
+    if request.method == "POST":
+        data = request.get_json()
+        
+        try:
+            with get_db_connection() as conn:
+                cursor = conn.cursor()
+                cursor.execute('''
+                    CREATE TABLE IF NOT EXISTS supplement_costs (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        user_id INTEGER NOT NULL,
+                        compound_name TEXT NOT NULL,
+                        cost_per_unit REAL NOT NULL,
+                        units_per_bottle INTEGER NOT NULL,
+                        bottle_cost REAL NOT NULL,
+                        supplier TEXT DEFAULT '',
+                        purchase_date DATE DEFAULT CURRENT_DATE,
+                        expiry_date DATE,
+                        notes TEXT DEFAULT '',
+                        FOREIGN KEY (user_id) REFERENCES users (id)
+                    )
+                ''')
+                
+                cursor.execute('''
+                    INSERT INTO supplement_costs 
+                    (user_id, compound_name, cost_per_unit, units_per_bottle, bottle_cost, supplier, expiry_date)
+                    VALUES ((SELECT id FROM users WHERE username = ?), ?, ?, ?, ?, ?, ?)
+                ''', (username, data['compoundName'], data['costPerUnit'], 
+                     data['unitsPerBottle'], data['bottleCost'], 
+                     data.get('supplier', ''), data.get('expiryDate')))
+                
+                conn.commit()
+            
+            return jsonify({"success": True}), 201
+        except Exception as e:
+            return jsonify({"error": str(e)}), 500
+    
+    # GET cost data
+    try:
+        with get_db_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute('''
+                SELECT compound_name, cost_per_unit, units_per_bottle, bottle_cost, 
+                       supplier, purchase_date, expiry_date
+                FROM supplement_costs
+                WHERE user_id = (SELECT id FROM users WHERE username = ?)
+                ORDER BY purchase_date DESC
+            ''', (username,))
+            
+            costs = []
+            total_monthly_cost = 0
+            
+            for row in cursor.fetchall():
+                cost_data = {
+                    "compoundName": row[0],
+                    "costPerUnit": row[1],
+                    "unitsPerBottle": row[2],
+                    "bottleCost": row[3],
+                    "supplier": row[4],
+                    "purchaseDate": row[5],
+                    "expiryDate": row[6]
+                }
+                costs.append(cost_data)
+                
+                # Calculate monthly cost (assuming 30-day supply)
+                daily_cost = cost_data["costPerUnit"]
+                total_monthly_cost += daily_cost * 30
+            
+            return jsonify({
+                "costs": costs,
+                "monthlyTotal": round(total_monthly_cost, 2),
+                "yearlyEstimate": round(total_monthly_cost * 12, 2)
+            }), 200
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
 @app.route("/api/protocols/<protocol_id>/stats", methods=["GET"])
 def api_get_protocol_stats(protocol_id):
-    """API endpoint to get detailed protocol statistics"""
+    """API endpoint to get detailed protocol statistics with advanced features"""
     username = session.get('api_username')
     if not username:
         return jsonify({"error": "Not authenticated"}), 401
@@ -4114,6 +4591,8 @@ def api_get_protocol_stats(protocol_id):
         # Weekly statistics
         weekly_stats = {}
         monthly_stats = {}
+        compound_timing = {}
+        side_effects = {}
         
         for date_str, day_log in logs.items():
             try:
@@ -4136,6 +4615,14 @@ def api_get_protocol_stats(protocol_id):
                 monthly_stats[month]["taken"] += day_taken
                 monthly_stats[month]["total"] += day_total
                 monthly_stats[month]["days"] += 1
+                
+                # Track side effects
+                if day_log.get('side_effects'):
+                    effect = day_log['side_effects']
+                    if effect not in side_effects:
+                        side_effects[effect] = 0
+                    side_effects[effect] += 1
+                
             except ValueError:
                 continue
         
@@ -4150,15 +4637,478 @@ def api_get_protocol_stats(protocol_id):
             "totalDays": total_days,
             "weeklyStats": weekly_stats,
             "monthlyStats": monthly_stats,
-            "compoundCount": len(prot["compounds"])
+            "compoundCount": len(prot["compounds"]),
+            "sideEffects": side_effects,
+            "avgMoodRating": calculate_avg_mood(logs),
+            "avgEnergyRating": calculate_avg_energy(logs),
+            "bestComplianceWeek": get_best_week(weekly_stats),
+            "improvementSuggestions": generate_improvement_suggestions(logs, weekly_stats)
         }), 200
         
     except Exception as e:
         return jsonify({"error": f"Failed to fetch stats: {str(e)}"}), 500
 
+def calculate_avg_mood(logs):
+    """Calculate average mood rating"""
+    mood_scores = []
+    mood_mapping = {"excellent": 5, "good": 4, "neutral": 3, "poor": 2, "terrible": 1}
+    
+    for day_log in logs.values():
+        mood = day_log.get('mood', '').lower()
+        if mood in mood_mapping:
+            mood_scores.append(mood_mapping[mood])
+    
+    return round(sum(mood_scores) / len(mood_scores), 1) if mood_scores else 0
+
+def calculate_avg_energy(logs):
+    """Calculate average energy rating"""
+    energy_scores = []
+    energy_mapping = {"high": 5, "good": 4, "moderate": 3, "low": 2, "exhausted": 1}
+    
+    for day_log in logs.values():
+        energy = day_log.get('energy', '').lower()
+        if energy in energy_mapping:
+            energy_scores.append(energy_mapping[energy])
+    
+    return round(sum(energy_scores) / len(energy_scores), 1) if energy_scores else 0
+
+def get_best_week(weekly_stats):
+    """Find the week with highest adherence"""
+    if not weekly_stats:
+        return None
+    
+    best_week = max(weekly_stats.items(), key=lambda x: x[1]["percentage"])
+    return {"week": best_week[0], "adherence": best_week[1]["percentage"]}
+
+def generate_improvement_suggestions(logs, weekly_stats):
+    """Generate personalized improvement suggestions"""
+    suggestions = []
+    
+    # Analyze patterns
+    if len(weekly_stats) >= 4:
+        recent_weeks = list(weekly_stats.values())[-4:]
+        adherence_trend = [week["percentage"] for week in recent_weeks]
+        
+        if adherence_trend[-1] < adherence_trend[0]:
+            suggestions.append({
+                "type": "trend",
+                "message": "Your adherence has been declining. Consider reviewing your routine and identifying barriers."
+            })
+    
+    # Side effect analysis
+    side_effects_count = sum(1 for day_log in logs.values() if day_log.get('side_effects'))
+    if side_effects_count > len(logs) * 0.2:  # More than 20% of days
+        suggestions.append({
+            "type": "health",
+            "message": "You're reporting side effects frequently. Consider consulting with a healthcare provider."
+        })
+    
+    return suggestions
+
+@app.route("/api/reminders/smart", methods=["GET", "POST"])
+def api_smart_reminders():
+    """Smart context-aware reminders"""
+    username = session.get('api_username')
+    if not username:
+        return jsonify({"error": "Not authenticated"}), 401
+    
+    if request.method == "POST":
+        data = request.get_json()
+        
+        try:
+            with get_db_connection() as conn:
+                cursor = conn.cursor()
+                
+                cursor.execute('''
+                    CREATE TABLE IF NOT EXISTS smart_reminders (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        user_id INTEGER NOT NULL,
+                        protocol_id TEXT NOT NULL,
+                        reminder_type TEXT NOT NULL,
+                        context_trigger TEXT NOT NULL,
+                        custom_message TEXT,
+                        enabled BOOLEAN DEFAULT TRUE,
+                        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                        FOREIGN KEY (user_id) REFERENCES users (id)
+                    )
+                ''')
+                
+                cursor.execute('''
+                    INSERT INTO smart_reminders 
+                    (user_id, protocol_id, reminder_type, context_trigger, custom_message)
+                    VALUES ((SELECT id FROM users WHERE username = ?), ?, ?, ?, ?)
+                ''', (username, data.get('protocolId'), data.get('type'), 
+                     data.get('trigger'), data.get('message')))
+                
+                conn.commit()
+            
+            return jsonify({"success": True}), 201
+        except Exception as e:
+            return jsonify({"error": str(e)}), 500
+    
+    # GET smart reminders
+    try:
+        with get_db_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute('''
+                SELECT protocol_id, reminder_type, context_trigger, custom_message, enabled
+                FROM smart_reminders
+                WHERE user_id = (SELECT id FROM users WHERE username = ?)
+            ''', (username,))
+            
+            reminders = []
+            for row in cursor.fetchall():
+                reminders.append({
+                    "protocolId": row[0],
+                    "type": row[1],
+                    "trigger": row[2],
+                    "message": row[3],
+                    "enabled": bool(row[4])
+                })
+            
+            return jsonify(reminders), 200
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+@app.route("/api/voice-commands", methods=["POST"])
+def api_voice_commands():
+    """Process voice commands for hands-free operation"""
+    username = session.get('api_username')
+    if not username:
+        return jsonify({"error": "Not authenticated"}), 401
+    
+    data = request.get_json()
+    command = data.get('command', '').lower()
+    
+    try:
+        # Parse voice commands
+        if 'mark' in command and 'taken' in command:
+            # Extract protocol/compound name
+            protocols = load_data(username)["protocols"]
+            
+            for protocol_name in protocols.keys():
+                if protocol_name.lower() in command:
+                    # Mark as taken
+                    today = date.today().isoformat()
+                    if today not in protocols[protocol_name]["logs"]:
+                        protocols[protocol_name]["logs"][today] = {}
+                    
+                    for compound in protocols[protocol_name]["compounds"]:
+                        compound_name = compound if isinstance(compound, str) else compound.get('name')
+                        if compound_name.lower() in command:
+                            protocols[protocol_name]["logs"][today][compound_name] = {
+                                "taken": True,
+                                "note": "Logged via voice command"
+                            }
+                    
+                    save_data({"protocols": protocols}, username)
+                    return jsonify({
+                        "success": True,
+                        "message": f"Marked supplements in {protocol_name} as taken",
+                        "action": "mark_taken"
+                    }), 200
+        
+        elif 'status' in command or 'progress' in command:
+            # Get status
+            data = load_data(username)
+            total_protocols = len(data["protocols"])
+            today = date.today().isoformat()
+            
+            completed_today = 0
+            for protocol in data["protocols"].values():
+                if today in protocol["logs"]:
+                    day_log = protocol["logs"][today]
+                    if all(entry.get("taken", False) for entry in day_log.values()):
+                        completed_today += 1
+            
+            return jsonify({
+                "success": True,
+                "message": f"You have completed {completed_today} out of {total_protocols} protocols today",
+                "action": "status_report",
+                "data": {"completed": completed_today, "total": total_protocols}
+            }), 200
+        
+        else:
+            return jsonify({
+                "success": False,
+                "message": "Command not recognized. Try 'Mark [compound] as taken' or 'Show my progress'",
+                "action": "unknown"
+            }), 400
+            
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+@app.route("/api/barcode/scan", methods=["POST"])
+def api_barcode_scan():
+    """Process barcode scans to add supplements"""
+    username = session.get('api_username')
+    if not username:
+        return jsonify({"error": "Not authenticated"}), 401
+    
+    data = request.get_json()
+    barcode = data.get('barcode')
+    
+    try:
+        # Mock supplement database lookup
+        supplement_database = {
+            "123456789": {
+                "name": "Vitamin D3",
+                "brand": "Nature's Best",
+                "dosage": "2000",
+                "unit": "IU",
+                "servingsPerBottle": 120,
+                "category": "vitamin"
+            },
+            "987654321": {
+                "name": "Omega-3 Fish Oil",
+                "brand": "Nordic Naturals",
+                "dosage": "1000",
+                "unit": "mg",
+                "servingsPerBottle": 60,
+                "category": "supplement"
+            }
+        }
+        
+        if barcode in supplement_database:
+            supplement = supplement_database[barcode]
+            
+            # Add to user's available compounds
+            with get_db_connection() as conn:
+                cursor = conn.cursor()
+                cursor.execute('''
+                    INSERT OR IGNORE INTO default_compounds 
+                    (name, unit, default_dosage, category, description, created_by)
+                    VALUES (?, ?, ?, ?, ?, ?)
+                ''', (supplement["name"], supplement["unit"], supplement["dosage"],
+                     supplement["category"], f"Scanned from {supplement['brand']}", username))
+                conn.commit()
+            
+            return jsonify({
+                "success": True,
+                "supplement": supplement,
+                "message": f"Added {supplement['name']} to your available compounds"
+            }), 200
+        else:
+            return jsonify({
+                "success": False,
+                "message": "Supplement not found in database",
+                "suggestion": "You can manually add this supplement"
+            }), 404
+            
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+@app.route("/api/gamification/achievements", methods=["GET"])
+def api_get_achievements():
+    """Get user achievements and badges"""
+    username = session.get('api_username')
+    if not username:
+        return jsonify({"error": "Not authenticated"}), 401
+    
+    try:
+        data = load_data(username)
+        achievements = calculate_achievements(data, username)
+        
+        return jsonify({
+            "achievements": achievements,
+            "totalPoints": sum(a["points"] for a in achievements if a["unlocked"]),
+            "level": calculate_user_level(achievements)
+        }), 200
+        
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+@app.route("/api/offline/sync", methods=["POST"])
+def api_offline_sync():
+    """Sync offline data when connection is restored"""
+    username = session.get('api_username')
+    if not username:
+        return jsonify({"error": "Not authenticated"}), 401
+    
+    data = request.get_json()
+    offline_logs = data.get('offlineLogs', [])
+    
+    try:
+        user_data = load_data(username)
+        synced_count = 0
+        
+        for log_entry in offline_logs:
+            protocol_name = log_entry.get('protocolName')
+            date_str = log_entry.get('date')
+            compounds = log_entry.get('compounds', {})
+            
+            if protocol_name in user_data["protocols"]:
+                if date_str not in user_data["protocols"][protocol_name]["logs"]:
+                    user_data["protocols"][protocol_name]["logs"][date_str] = {}
+                
+                for compound, data_entry in compounds.items():
+                    user_data["protocols"][protocol_name]["logs"][date_str][compound] = data_entry
+                
+                synced_count += 1
+        
+        save_data(user_data, username)
+        
+        return jsonify({
+            "success": True,
+            "syncedEntries": synced_count,
+            "message": f"Successfully synced {synced_count} offline entries"
+        }), 200
+        
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+@app.route("/api/multi-language/content", methods=["GET"])
+def api_get_localized_content():
+    """Get localized content for internationalization"""
+    language = request.args.get('lang', 'en')
+    
+    translations = {
+        "en": {
+            "dashboard": "Dashboard",
+            "protocols": "Protocols",
+            "analytics": "Analytics",
+            "taken": "Taken",
+            "missed": "Missed",
+            "notes": "Notes",
+            "excellent_adherence": "Excellent adherence! Keep it up!",
+            "needs_improvement": "Your adherence could be improved"
+        },
+        "es": {
+            "dashboard": "Panel de Control",
+            "protocols": "Protocolos",
+            "analytics": "Análisis",
+            "taken": "Tomado",
+            "missed": "Perdido",
+            "notes": "Notas",
+            "excellent_adherence": "¡Excelente adherencia! ¡Sigue así!",
+            "needs_improvement": "Tu adherencia podría mejorar"
+        },
+        "fr": {
+            "dashboard": "Tableau de Bord",
+            "protocols": "Protocoles",
+            "analytics": "Analyses",
+            "taken": "Pris",
+            "missed": "Manqué",
+            "notes": "Notes",
+            "excellent_adherence": "Excellente adhérence! Continuez!",
+            "needs_improvement": "Votre adhérence pourrait être améliorée"
+        }
+    }
+    
+    return jsonify(translations.get(language, translations["en"])), 200
+
+def calculate_achievements(data, username):
+    """Calculate user achievements and badges"""
+    achievements = [
+        {
+            "id": "first_protocol",
+            "name": "First Steps",
+            "description": "Created your first protocol",
+            "icon": "🎯",
+            "points": 50,
+            "unlocked": len(data["protocols"]) > 0
+        },
+        {
+            "id": "week_streak",
+            "name": "Week Warrior",
+            "description": "Maintained 7-day streak",
+            "icon": "🔥",
+            "points": 100,
+            "unlocked": calculate_max_streak(data) >= 7
+        },
+        {
+            "id": "month_streak",
+            "name": "Monthly Master",
+            "description": "Maintained 30-day streak",
+            "icon": "👑",
+            "points": 500,
+            "unlocked": calculate_max_streak(data) >= 30
+        },
+        {
+            "id": "perfect_adherence",
+            "name": "Perfectionist",
+            "description": "100% adherence for a month",
+            "icon": "⭐",
+            "points": 200,
+            "unlocked": check_perfect_month(data)
+        }
+    ]
+    
+    return achievements
+
+def calculate_max_streak(data):
+    """Calculate the maximum streak across all protocols"""
+    max_streak = 0
+    
+    for protocol in data["protocols"].values():
+        logs = protocol["logs"]
+        if not logs:
+            continue
+        
+        sorted_dates = sorted(logs.keys())
+        current_streak = 0
+        temp_max = 0
+        
+        for i, date_str in enumerate(sorted_dates):
+            day_log = logs[date_str]
+            all_taken = all(entry.get("taken", False) for entry in day_log.values())
+            
+            if all_taken:
+                current_streak += 1
+                temp_max = max(temp_max, current_streak)
+            else:
+                current_streak = 0
+        
+        max_streak = max(max_streak, temp_max)
+    
+    return max_streak
+
+def check_perfect_month(data):
+    """Check if user has had perfect adherence for any month"""
+    for protocol in data["protocols"].values():
+        logs = protocol["logs"]
+        monthly_data = {}
+        
+        for date_str, day_log in logs.items():
+            try:
+                log_date = datetime.strptime(date_str, "%Y-%m-%d").date()
+                month = log_date.strftime("%Y-%m")
+                
+                if month not in monthly_data:
+                    monthly_data[month] = {"perfect_days": 0, "total_days": 0}
+                
+                monthly_data[month]["total_days"] += 1
+                
+                if all(entry.get("taken", False) for entry in day_log.values()):
+                    monthly_data[month]["perfect_days"] += 1
+            except ValueError:
+                continue
+        
+        for month_data in monthly_data.values():
+            if (month_data["total_days"] >= 20 and 
+                month_data["perfect_days"] == month_data["total_days"]):
+                return True
+    
+    return False
+
+def calculate_user_level(achievements):
+    """Calculate user level based on total points"""
+    total_points = sum(a["points"] for a in achievements if a["unlocked"])
+    
+    if total_points >= 1000:
+        return {"level": 5, "title": "Supplement Master"}
+    elif total_points >= 500:
+        return {"level": 4, "title": "Health Enthusiast"}
+    elif total_points >= 200:
+        return {"level": 3, "title": "Consistent Tracker"}
+    elif total_points >= 100:
+        return {"level": 2, "title": "Getting Started"}
+    else:
+        return {"level": 1, "title": "Beginner"}
+
 @app.route("/api/reminders", methods=["GET", "POST"])
 def api_manage_reminders():
-    """API endpoint to manage user reminders"""
+    """Enhanced API endpoint to manage user reminders"""
     username = session.get('api_username')
     if not username:
         return jsonify({"error": "Not authenticated"}), 401
@@ -4183,7 +5133,7 @@ def api_manage_reminders():
         except Exception as e:
             return jsonify({"error": str(e)}), 500
     
-    # GET request
+    # GET request with enhanced features
     try:
         with get_db_connection() as conn:
             cursor = conn.cursor()
@@ -4201,9 +5151,45 @@ def api_manage_reminders():
                     "enabled": bool(row[2])
                 })
             
-            return jsonify(reminders), 200
+            # Add smart suggestions
+            suggestions = generate_reminder_suggestions(username)
+            
+            return jsonify({
+                "reminders": reminders,
+                "suggestions": suggestions
+            }), 200
     except Exception as e:
         return jsonify({"error": str(e)}), 500
+
+def generate_reminder_suggestions(username):
+    """Generate intelligent reminder suggestions"""
+    data = load_data(username)
+    suggestions = []
+    
+    # Analyze user's pattern
+    for protocol_name, protocol in data["protocols"].items():
+        logs = protocol["logs"]
+        if len(logs) >= 7:
+            # Find best time based on historical data
+            time_analysis = {}
+            for date_str, day_log in logs.items():
+                if all(entry.get("taken", False) for entry in day_log.values()):
+                    # Mock time analysis - in real app, you'd track actual times
+                    suggested_time = "08:00"  # Morning suggestion
+                    if suggested_time not in time_analysis:
+                        time_analysis[suggested_time] = 0
+                    time_analysis[suggested_time] += 1
+            
+            if time_analysis:
+                best_time = max(time_analysis, key=time_analysis.get)
+                suggestions.append({
+                    "protocolId": protocol_name,
+                    "suggestedTime": best_time,
+                    "reason": f"You have {time_analysis[best_time]}% success rate at this time",
+                    "confidence": "high"
+                })
+    
+    return suggestions
 
 @app.route("/api/healthkit/sync", methods=["POST"])
 def api_sync_healthkit_data():
@@ -4281,9 +5267,269 @@ def api_sync_healthkit_data():
                        'error')
         return jsonify({"error": f"Failed to sync HealthKit data: {str(e)}"}), 500
 
+@app.route("/api/wearables/sync", methods=["POST"])
+def api_sync_wearable_data():
+    """Sync data from various wearable devices"""
+    username = session.get('api_username')
+    if not username:
+        return jsonify({"error": "Not authenticated"}), 401
+    
+    data = request.get_json()
+    device_type = data.get('deviceType')  # 'apple_watch', 'fitbit', 'garmin', etc.
+    metrics = data.get('metrics', {})
+    
+    try:
+        with get_db_connection() as conn:
+            cursor = conn.cursor()
+            
+            # Create wearable_data table if it doesn't exist
+            cursor.execute('''
+                CREATE TABLE IF NOT EXISTS wearable_data (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    user_id INTEGER NOT NULL,
+                    device_type TEXT NOT NULL,
+                    metric_type TEXT NOT NULL,
+                    value REAL NOT NULL,
+                    unit TEXT NOT NULL,
+                    recorded_date TIMESTAMP NOT NULL,
+                    synced_date TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    FOREIGN KEY (user_id) REFERENCES users (id),
+                    UNIQUE(user_id, device_type, metric_type, recorded_date)
+                )
+            ''')
+            
+            user_id = get_user_id(username)
+            
+            for metric_type, metric_data in metrics.items():
+                cursor.execute('''
+                    INSERT OR REPLACE INTO wearable_data 
+                    (user_id, device_type, metric_type, value, unit, recorded_date)
+                    VALUES (?, ?, ?, ?, ?, ?)
+                ''', (user_id, device_type, metric_type, 
+                     metric_data['value'], metric_data['unit'], metric_data['date']))
+            
+            conn.commit()
+            
+            return jsonify({
+                "success": True,
+                "message": f"Synced {len(metrics)} metrics from {device_type}"
+            }), 200
+            
+    except Exception as e:
+        return jsonify({"error": f"Failed to sync wearable data: {str(e)}"}), 500
+
+@app.route("/api/biomarkers", methods=["GET", "POST"])
+def api_manage_biomarkers():
+    """Manage biomarker data and lab results"""
+    username = session.get('api_username')
+    if not username:
+        return jsonify({"error": "Not authenticated"}), 401
+    
+    if request.method == "POST":
+        data = request.get_json()
+        
+        try:
+            with get_db_connection() as conn:
+                cursor = conn.cursor()
+                
+                cursor.execute('''
+                    CREATE TABLE IF NOT EXISTS biomarker_data (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        user_id INTEGER NOT NULL,
+                        biomarker_name TEXT NOT NULL,
+                        value REAL NOT NULL,
+                        unit TEXT NOT NULL,
+                        reference_min REAL,
+                        reference_max REAL,
+                        test_date DATE NOT NULL,
+                        lab_name TEXT DEFAULT '',
+                        notes TEXT DEFAULT '',
+                        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                        FOREIGN KEY (user_id) REFERENCES users (id)
+                    )
+                ''')
+                
+                user_id = get_user_id(username)
+                
+                for biomarker in data.get('biomarkers', []):
+                    cursor.execute('''
+                        INSERT INTO biomarker_data 
+                        (user_id, biomarker_name, value, unit, reference_min, reference_max, 
+                         test_date, lab_name, notes)
+                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    ''', (user_id, biomarker['name'], biomarker['value'], biomarker['unit'],
+                         biomarker.get('referenceMin'), biomarker.get('referenceMax'),
+                         biomarker['testDate'], biomarker.get('labName', ''), 
+                         biomarker.get('notes', '')))
+                
+                conn.commit()
+                
+                return jsonify({"success": True}), 201
+                
+        except Exception as e:
+            return jsonify({"error": str(e)}), 500
+    
+    # GET biomarkers
+    try:
+        with get_db_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute('''
+                SELECT biomarker_name, value, unit, reference_min, reference_max,
+                       test_date, lab_name, notes
+                FROM biomarker_data
+                WHERE user_id = (SELECT id FROM users WHERE username = ?)
+                ORDER BY test_date DESC
+            ''', (username,))
+            
+            biomarkers = []
+            for row in cursor.fetchall():
+                biomarkers.append({
+                    "name": row[0],
+                    "value": row[1],
+                    "unit": row[2],
+                    "referenceMin": row[3],
+                    "referenceMax": row[4],
+                    "testDate": row[5],
+                    "labName": row[6],
+                    "notes": row[7]
+                })
+            
+            return jsonify(biomarkers), 200
+            
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+@app.route("/api/correlations/analyze", methods=["POST"])
+def api_analyze_correlations():
+    """Analyze correlations between supplements and health metrics"""
+    username = session.get('api_username')
+    if not username:
+        return jsonify({"error": "Not authenticated"}), 401
+    
+    try:
+        user_id = get_user_id(username)
+        
+        with get_db_connection() as conn:
+            cursor = conn.cursor()
+            
+            # Get protocol logs with health metrics
+            cursor.execute('''
+                SELECT pl.log_date, pl.compound, pl.taken, pl.mood, pl.energy, pl.side_effects
+                FROM protocol_logs pl
+                JOIN protocols p ON pl.protocol_id = p.id
+                WHERE p.user_id = ?
+                AND pl.log_date >= date('now', '-90 days')
+                ORDER BY pl.log_date
+            ''', (user_id,))
+            
+            logs = cursor.fetchall()
+            
+            # Get wearable data
+            cursor.execute('''
+                SELECT metric_type, value, recorded_date
+                FROM wearable_data
+                WHERE user_id = ? AND recorded_date >= date('now', '-90 days')
+            ''', (user_id,))
+            
+            wearable_data = cursor.fetchall()
+            
+            # Analyze correlations
+            correlations = analyze_supplement_correlations(logs, wearable_data)
+            
+            return jsonify({
+                "correlations": correlations,
+                "analysisDate": datetime.now().isoformat(),
+                "dataPoints": len(logs)
+            }), 200
+            
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+@app.route("/api/export/comprehensive", methods=["GET"])
+def api_comprehensive_export():
+    """Export all user data in multiple formats"""
+    username = session.get('api_username')
+    if not username:
+        return jsonify({"error": "Not authenticated"}), 401
+    
+    format_type = request.args.get('format', 'json')  # json, csv, pdf
+    
+    try:
+        user_id = get_user_id(username)
+        
+        with get_db_connection() as conn:
+            cursor = conn.cursor()
+            
+            # Get all user data
+            export_data = {
+                "user": {"username": username, "exportDate": datetime.now().isoformat()},
+                "protocols": [],
+                "logs": [],
+                "biomarkers": [],
+                "wearableData": [],
+                "healthKitData": [],
+                "costs": []
+            }
+            
+            # Protocols
+            cursor.execute('SELECT name, compounds FROM protocols WHERE user_id = ?', (user_id,))
+            for row in cursor.fetchall():
+                export_data["protocols"].append({
+                    "name": row[0],
+                    "compounds": json.loads(row[1])
+                })
+            
+            # Protocol logs
+            cursor.execute('''
+                SELECT p.name, pl.log_date, pl.compound, pl.taken, pl.note, 
+                       pl.mood, pl.energy, pl.side_effects, pl.weight, pl.general_notes
+                FROM protocol_logs pl
+                JOIN protocols p ON pl.protocol_id = p.id
+                WHERE p.user_id = ?
+            ''', (user_id,))
+            
+            for row in cursor.fetchall():
+                export_data["logs"].append({
+                    "protocolName": row[0],
+                    "date": row[1],
+                    "compound": row[2],
+                    "taken": bool(row[3]),
+                    "note": row[4],
+                    "mood": row[5],
+                    "energy": row[6],
+                    "sideEffects": row[7],
+                    "weight": row[8],
+                    "generalNotes": row[9]
+                })
+            
+            # Biomarkers
+            cursor.execute('''
+                SELECT biomarker_name, value, unit, test_date, lab_name
+                FROM biomarker_data WHERE user_id = ?
+            ''', (user_id,))
+            
+            for row in cursor.fetchall():
+                export_data["biomarkers"].append({
+                    "name": row[0],
+                    "value": row[1],
+                    "unit": row[2],
+                    "testDate": row[3],
+                    "labName": row[4]
+                })
+            
+            if format_type == 'json':
+                return jsonify(export_data), 200
+            elif format_type == 'csv':
+                return export_as_csv(export_data)
+            else:
+                return jsonify({"error": "Unsupported format"}), 400
+                
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
 @app.route("/api/healthkit/data", methods=["GET"])
 def api_get_healthkit_data():
-    """API endpoint to retrieve user's HealthKit data"""
+    """API endpoint to retrieve user's HealthKit data with enhanced features"""
     username = session.get('api_username')
     if not username:
         return jsonify({"error": "Not authenticated"}), 401
@@ -4311,13 +5557,131 @@ def api_get_healthkit_data():
                     "syncedDate": row[4]
                 })
             
+            # Get summary statistics
+            cursor.execute('''
+                SELECT 
+                    COUNT(*) as total_entries,
+                    COUNT(DISTINCT supplement_name) as unique_supplements,
+                    MIN(recorded_date) as first_entry,
+                    MAX(recorded_date) as last_entry
+                FROM healthkit_data
+                WHERE user_id = (SELECT id FROM users WHERE username = ?)
+            ''', (username,))
+            
+            stats = cursor.fetchone()
+            
             return jsonify({
                 "healthKitData": healthkit_data,
-                "totalRecords": len(healthkit_data)
+                "totalRecords": len(healthkit_data),
+                "summary": {
+                    "totalEntries": stats[0],
+                    "uniqueSupplements": stats[1],
+                    "firstEntry": stats[2],
+                    "lastEntry": stats[3]
+                }
             }), 200
             
     except Exception as e:
         return jsonify({"error": f"Failed to fetch HealthKit data: {str(e)}"}), 500
+
+def get_user_id(username):
+    """Helper function to get user ID"""
+    with get_db_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute("SELECT id FROM users WHERE username = ?", (username,))
+        row = cursor.fetchone()
+        return row[0] if row else None
+
+def analyze_supplement_correlations(logs, wearable_data):
+    """Analyze correlations between supplement intake and health metrics"""
+    correlations = []
+    
+    # Group data by date
+    daily_data = {}
+    
+    for log in logs:
+        date = log[0]
+        if date not in daily_data:
+            daily_data[date] = {"supplements": [], "mood": None, "energy": None}
+        
+        if log[2]:  # if taken
+            daily_data[date]["supplements"].append(log[1])
+        
+        if log[3]:  # mood
+            daily_data[date]["mood"] = log[3]
+        if log[4]:  # energy
+            daily_data[date]["energy"] = log[4]
+    
+    # Add wearable data
+    for metric in wearable_data:
+        date = metric[2][:10]  # Extract date part
+        if date in daily_data:
+            daily_data[date][metric[0]] = metric[1]
+    
+    # Simple correlation analysis
+    compound_effects = {}
+    
+    for date, data in daily_data.items():
+        for supplement in data["supplements"]:
+            if supplement not in compound_effects:
+                compound_effects[supplement] = {"mood_scores": [], "energy_scores": []}
+            
+            if data["mood"]:
+                mood_mapping = {"excellent": 5, "good": 4, "neutral": 3, "poor": 2, "terrible": 1}
+                if data["mood"].lower() in mood_mapping:
+                    compound_effects[supplement]["mood_scores"].append(mood_mapping[data["mood"].lower()])
+            
+            if data["energy"]:
+                energy_mapping = {"high": 5, "good": 4, "moderate": 3, "low": 2, "exhausted": 1}
+                if data["energy"].lower() in energy_mapping:
+                    compound_effects[supplement]["energy_scores"].append(energy_mapping[data["energy"].lower()])
+    
+    # Calculate correlations
+    for compound, effects in compound_effects.items():
+        if len(effects["mood_scores"]) > 3:
+            avg_mood = sum(effects["mood_scores"]) / len(effects["mood_scores"])
+            correlations.append({
+                "compound": compound,
+                "metric": "mood",
+                "correlation": round(avg_mood, 2),
+                "strength": "positive" if avg_mood > 3 else "negative" if avg_mood < 3 else "neutral",
+                "dataPoints": len(effects["mood_scores"])
+            })
+        
+        if len(effects["energy_scores"]) > 3:
+            avg_energy = sum(effects["energy_scores"]) / len(effects["energy_scores"])
+            correlations.append({
+                "compound": compound,
+                "metric": "energy",
+                "correlation": round(avg_energy, 2),
+                "strength": "positive" if avg_energy > 3 else "negative" if avg_energy < 3 else "neutral",
+                "dataPoints": len(effects["energy_scores"])
+            })
+    
+    return correlations
+
+def export_as_csv(data):
+    """Export data as CSV format"""
+    output = io.StringIO()
+    
+    # Write protocols
+    output.write("PROTOCOLS\n")
+    output.write("Protocol Name,Compounds\n")
+    for protocol in data["protocols"]:
+        compounds = "; ".join([c["name"] if isinstance(c, dict) else c for c in protocol["compounds"]])
+        output.write(f"{protocol['name']},{compounds}\n")
+    
+    output.write("\nLOGS\n")
+    output.write("Protocol,Date,Compound,Taken,Note,Mood,Energy,Side Effects,Weight,General Notes\n")
+    for log in data["logs"]:
+        output.write(f"{log['protocolName']},{log['date']},{log['compound']},{log['taken']},{log['note']},{log['mood']},{log['energy']},{log['sideEffects']},{log['weight']},{log['generalNotes']}\n")
+    
+    output.seek(0)
+    return Response(
+        output.getvalue(),
+        mimetype="text/csv",
+        headers={"Content-Disposition": "attachment; filename=supplement_data_export.csv"}
+    )
 
 # Add CORS headers for iOS app
 @app.after_request

@@ -464,6 +464,205 @@ class APIService: ObservableObject {
             }
         }.resume()
     }
+    
+    // MARK: - Advanced Analytics
+    
+    func fetchProtocolTemplates(completion: @escaping (Result<[ProtocolTemplate], Error>) -> Void) {
+        guard let url = URL(string: "\(baseURL)/api/protocols/templates") else {
+            completion(.failure(APIError.invalidURL))
+            return
+        }
+        
+        performRequest(url: url, method: "GET", body: nil, completion: completion)
+    }
+    
+    func createProtocolFromTemplate(templateId: String, customName: String?, completion: @escaping (Result<ProtocolModel, Error>) -> Void) {
+        guard let url = URL(string: "\(baseURL)/api/protocols/from-template") else {
+            completion(.failure(APIError.invalidURL))
+            return
+        }
+        
+        let requestData = ["templateId": templateId, "customName": customName ?? ""]
+        performRequest(url: url, method: "POST", body: requestData, completion: completion)
+    }
+    
+    func syncWearableData(deviceType: String, metrics: [String: Any], completion: @escaping (Result<Void, Error>) -> Void) {
+        guard let url = URL(string: "\(baseURL)/api/wearables/sync") else {
+            completion(.failure(APIError.invalidURL))
+            return
+        }
+        
+        let requestData = ["deviceType": deviceType, "metrics": metrics]
+        
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        
+        do {
+            request.httpBody = try JSONSerialization.data(withJSONObject: requestData)
+        } catch {
+            completion(.failure(error))
+            return
+        }
+        
+        URLSession.shared.dataTask(with: request) { _, response, error in
+            if let error = error {
+                completion(.failure(error))
+                return
+            }
+            
+            guard let httpResponse = response as? HTTPURLResponse else {
+                completion(.failure(APIError.invalidResponse))
+                return
+            }
+            
+            if httpResponse.statusCode == 200 {
+                completion(.success(()))
+            } else {
+                completion(.failure(APIError.requestFailed))
+            }
+        }.resume()
+    }
+    
+    func saveBiomarkerData(biomarkers: [BiomarkerData], completion: @escaping (Result<Void, Error>) -> Void) {
+        guard let url = URL(string: "\(baseURL)/api/biomarkers") else {
+            completion(.failure(APIError.invalidURL))
+            return
+        }
+        
+        let requestData = ["biomarkers": biomarkers.map { $0.toDictionary() }]
+        performVoidRequest(url: url, method: "POST", body: requestData, completion: completion)
+    }
+    
+    func fetchBiomarkers(completion: @escaping (Result<[BiomarkerData], Error>) -> Void) {
+        guard let url = URL(string: "\(baseURL)/api/biomarkers") else {
+            completion(.failure(APIError.invalidURL))
+            return
+        }
+        
+        performRequest(url: url, method: "GET", body: nil, completion: completion)
+    }
+    
+    func processVoiceCommand(command: String, completion: @escaping (Result<VoiceCommandResponse, Error>) -> Void) {
+        guard let url = URL(string: "\(baseURL)/api/voice-commands") else {
+            completion(.failure(APIError.invalidURL))
+            return
+        }
+        
+        let requestData = ["command": command]
+        performRequest(url: url, method: "POST", body: requestData, completion: completion)
+    }
+    
+    func scanBarcode(barcode: String, completion: @escaping (Result<BarcodeScanResult, Error>) -> Void) {
+        guard let url = URL(string: "\(baseURL)/api/barcode/scan") else {
+            completion(.failure(APIError.invalidURL))
+            return
+        }
+        
+        let requestData = ["barcode": barcode]
+        performRequest(url: url, method: "POST", body: requestData, completion: completion)
+    }
+    
+    func fetchAchievements(completion: @escaping (Result<AchievementsData, Error>) -> Void) {
+        guard let url = URL(string: "\(baseURL)/api/gamification/achievements") else {
+            completion(.failure(APIError.invalidURL))
+            return
+        }
+        
+        performRequest(url: url, method: "GET", body: nil, completion: completion)
+    }
+    
+    func exportComprehensiveData(format: String, completion: @escaping (Result<ExportData, Error>) -> Void) {
+        guard let url = URL(string: "\(baseURL)/api/export/comprehensive?format=\(format)") else {
+            completion(.failure(APIError.invalidURL))
+            return
+        }
+        
+        performRequest(url: url, method: "GET", body: nil, completion: completion)
+    }
+    
+    // MARK: - Helper Methods
+    
+    private func performRequest<T: Codable>(url: URL, method: String, body: [String: Any]?, completion: @escaping (Result<T, Error>) -> Void) {
+        var request = URLRequest(url: url)
+        request.httpMethod = method
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        
+        if let body = body {
+            do {
+                request.httpBody = try JSONSerialization.data(withJSONObject: body)
+            } catch {
+                completion(.failure(error))
+                return
+            }
+        }
+        
+        URLSession.shared.dataTask(with: request) { data, response, error in
+            if let error = error {
+                completion(.failure(error))
+                return
+            }
+            
+            guard let httpResponse = response as? HTTPURLResponse,
+                  let data = data else {
+                completion(.failure(APIError.invalidResponse))
+                return
+            }
+            
+            if httpResponse.statusCode == 401 {
+                DispatchQueue.main.async {
+                    self.isAuthenticated = false
+                    self.clearAuthToken()
+                }
+                completion(.failure(APIError.loginFailed))
+                return
+            }
+            
+            if httpResponse.statusCode == 200 {
+                do {
+                    let result = try JSONDecoder().decode(T.self, from: data)
+                    completion(.success(result))
+                } catch {
+                    completion(.failure(error))
+                }
+            } else {
+                completion(.failure(APIError.requestFailed))
+            }
+        }.resume()
+    }
+    
+    private func performVoidRequest(url: URL, method: String, body: [String: Any]?, completion: @escaping (Result<Void, Error>) -> Void) {
+        var request = URLRequest(url: url)
+        request.httpMethod = method
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        
+        if let body = body {
+            do {
+                request.httpBody = try JSONSerialization.data(withJSONObject: body)
+            } catch {
+                completion(.failure(error))
+                return
+            }
+        }
+        
+        URLSession.shared.dataTask(with: request) { _, response, error in
+            if let error = error {
+                completion(.failure(error))
+                return
+            }
+            
+            guard let httpResponse = response as? HTTPURLResponse else {
+                completion(.failure(APIError.invalidResponse))
+                return
+            }
+            
+            if httpResponse.statusCode == 200 || httpResponse.statusCode == 201 {
+                completion(.success(()))
+            } else {
+                completion(.failure(APIError.requestFailed))
+            }
+        }.resume()
+    }
 
     // MARK: - Notifications
 

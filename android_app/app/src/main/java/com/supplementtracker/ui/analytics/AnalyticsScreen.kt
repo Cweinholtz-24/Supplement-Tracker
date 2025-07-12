@@ -16,12 +16,14 @@ import androidx.hilt.navigation.compose.hiltViewModel
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
+@Composable
 fun AnalyticsScreen(
     protocolId: String,
     onBackClick: () -> Unit,
     viewModel: AnalyticsViewModel = hiltViewModel()
 ) {
     val uiState by viewModel.uiState.collectAsState()
+    val tabState = remember { mutableStateOf(0) }
     
     LaunchedEffect(protocolId) {
         viewModel.loadAnalytics(protocolId)
@@ -32,13 +34,18 @@ fun AnalyticsScreen(
             TopAppBar(
                 title = { 
                     Text(
-                        text = "Analytics",
+                        text = "Advanced Analytics",
                         fontWeight = FontWeight.Bold
                     )
                 },
                 navigationIcon = {
                     IconButton(onClick = onBackClick) {
                         Icon(Icons.Default.ArrowBack, contentDescription = "Back")
+                    }
+                },
+                actions = {
+                    IconButton(onClick = { viewModel.exportAnalytics(protocolId) }) {
+                        Icon(Icons.Default.FileDownload, contentDescription = "Export")
                     }
                 }
             )
@@ -50,7 +57,11 @@ fun AnalyticsScreen(
                     modifier = Modifier.fillMaxSize(),
                     contentAlignment = Alignment.Center
                 ) {
-                    CircularProgressIndicator()
+                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                        CircularProgressIndicator()
+                        Spacer(modifier = Modifier.height(16.dp))
+                        Text("Loading advanced analytics...")
+                    }
                 }
             }
             
@@ -65,6 +76,359 @@ fun AnalyticsScreen(
                 ) {
                     Icon(
                         Icons.Default.Error,
+                        contentDescription = null,
+                        modifier = Modifier.size(64.dp),
+                        tint = MaterialTheme.colorScheme.error
+                    )
+                    Spacer(modifier = Modifier.height(16.dp))
+                    Text(
+                        text = uiState.errorMessage ?: "Failed to load analytics",
+                        style = MaterialTheme.typography.headlineSmall,
+                        textAlign = TextAlign.Center
+                    )
+                    Spacer(modifier = Modifier.height(16.dp))
+                    Button(onClick = { viewModel.loadAnalytics(protocolId) }) {
+                        Text("Retry")
+                    }
+                }
+            }
+            
+            uiState.isSuccess -> {
+                uiState.data?.let { analytics ->
+                    Column(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .padding(paddingValues)
+                    ) {
+                        // Tab Row
+                        TabRow(
+                            selectedTabIndex = tabState.value,
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Tab(
+                                selected = tabState.value == 0,
+                                onClick = { tabState.value = 0 },
+                                text = { Text("Overview") },
+                                icon = { Icon(Icons.Default.BarChart, contentDescription = null) }
+                            )
+                            Tab(
+                                selected = tabState.value == 1,
+                                onClick = { tabState.value = 1 },
+                                text = { Text("AI Insights") },
+                                icon = { Icon(Icons.Default.Psychology, contentDescription = null) }
+                            )
+                            Tab(
+                                selected = tabState.value == 2,
+                                onClick = { tabState.value = 2 },
+                                text = { Text("Trends") },
+                                icon = { Icon(Icons.Default.TrendingUp, contentDescription = null) }
+                            )
+                            Tab(
+                                selected = tabState.value == 3,
+                                onClick = { tabState.value = 3 },
+                                text = { Text("Correlations") },
+                                icon = { Icon(Icons.Default.Hub, contentDescription = null) }
+                            )
+                        }
+                        
+                        // Tab Content
+                        when (tabState.value) {
+                            0 -> OverviewTab(analytics = analytics)
+                            1 -> AIInsightsTab(insights = analytics.aiInsights)
+                            2 -> TrendsTab(
+                                weeklyTrends = analytics.weeklyTrends,
+                                monthlyTrends = analytics.monthlyTrends
+                            )
+                            3 -> CorrelationsTab(correlations = analytics.correlations)
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun OverviewTab(analytics: AdvancedAnalytics) {
+    LazyColumn(
+        modifier = Modifier
+            .fillMaxSize()
+            .padding(16.dp),
+        verticalArrangement = Arrangement.spacedBy(16.dp)
+    ) {
+        // Key Metrics
+        item {
+            KeyMetricsSection(analytics = analytics)
+        }
+        
+        // Adherence Pattern
+        item {
+            AdherencePatternCard(pattern = analytics.adherencePattern)
+        }
+        
+        // Best Performing Day
+        analytics.bestPerformingDay?.let { bestDay ->
+            item {
+                BestPerformingDayCard(bestDay = bestDay)
+            }
+        }
+        
+        // Compound Stats
+        item {
+            CompoundStatsSection(compoundStats = analytics.compoundStats)
+        }
+        
+        // Predictions
+        analytics.predictions?.let { predictions ->
+            item {
+                PredictionsCard(predictions = predictions)
+            }
+        }
+    }
+}
+
+@Composable
+private fun KeyMetricsSection(analytics: AdvancedAnalytics) {
+    LazyVerticalGrid(
+        columns = GridCells.Fixed(2),
+        horizontalArrangement = Arrangement.spacedBy(12.dp),
+        verticalArrangement = Arrangement.spacedBy(12.dp),
+        modifier = Modifier.height(200.dp)
+    ) {
+        item {
+            MetricCard(
+                title = "Total Days",
+                value = analytics.totalDays.toString(),
+                icon = Icons.Default.CalendarToday,
+                color = MaterialTheme.colorScheme.primary
+            )
+        }
+        item {
+            MetricCard(
+                title = "Adherence",
+                value = "${analytics.adherence.toInt()}%",
+                icon = Icons.Default.PieChart,
+                color = MaterialTheme.colorScheme.secondary
+            )
+        }
+        item {
+            MetricCard(
+                title = "Current Streak",
+                value = analytics.streak.toString(),
+                icon = Icons.Default.LocalFire,
+                color = MaterialTheme.colorScheme.tertiary
+            )
+        }
+        item {
+            MetricCard(
+                title = "Missed Days",
+                value = analytics.missedDays.toString(),
+                icon = Icons.Default.Warning,
+                color = MaterialTheme.colorScheme.error
+            )
+        }
+    }
+}
+
+@Composable
+private fun MetricCard(
+    title: String,
+    value: String,
+    icon: ImageVector,
+    color: Color
+) {
+    Card(
+        modifier = Modifier
+            .fillMaxWidth()
+            .aspectRatio(1f),
+        elevation = CardDefaults.cardElevation(defaultElevation = 4.dp)
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(16.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.Center
+        ) {
+            Icon(
+                imageVector = icon,
+                contentDescription = null,
+                tint = color,
+                modifier = Modifier.size(32.dp)
+            )
+            Spacer(modifier = Modifier.height(8.dp))
+            Text(
+                text = value,
+                style = MaterialTheme.typography.headlineMedium,
+                fontWeight = FontWeight.Bold,
+                color = color
+            )
+            Text(
+                text = title,
+                style = MaterialTheme.typography.bodySmall,
+                textAlign = TextAlign.Center,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+        }
+    }
+}
+
+@Composable
+private fun AIInsightsTab(insights: List<AIInsight>) {
+    LazyColumn(
+        modifier = Modifier
+            .fillMaxSize()
+            .padding(16.dp),
+        verticalArrangement = Arrangement.spacedBy(12.dp)
+    ) {
+        if (insights.isEmpty()) {
+            item {
+                EmptyStateCard(
+                    icon = Icons.Default.Psychology,
+                    title = "No AI insights available yet",
+                    subtitle = "Keep tracking to get personalized insights!"
+                )
+            }
+        } else {
+            items(insights.sortedByDescending { it.priorityLevel }) { insight ->
+                AIInsightCard(insight = insight)
+            }
+        }
+    }
+}
+
+@Composable
+private fun AIInsightCard(insight: AIInsight) {
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        elevation = CardDefaults.cardElevation(defaultElevation = 4.dp)
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(16.dp),
+            verticalAlignment = Alignment.Top
+        ) {
+            Icon(
+                imageVector = insight.getIcon(),
+                contentDescription = null,
+                tint = insight.getColor(),
+                modifier = Modifier.size(32.dp)
+            )
+            Spacer(modifier = Modifier.width(12.dp))
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = insight.title,
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.Bold
+                )
+                Spacer(modifier = Modifier.height(4.dp))
+                Text(
+                    text = insight.message,
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun TrendsTab(weeklyTrends: List<WeeklyTrend>, monthlyTrends: List<MonthlyTrend>) {
+    var selectedTimeframe by remember { mutableStateOf(0) }
+    
+    Column(modifier = Modifier.fillMaxSize()) {
+        TabRow(
+            selectedTabIndex = selectedTimeframe,
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Tab(
+                selected = selectedTimeframe == 0,
+                onClick = { selectedTimeframe = 0 },
+                text = { Text("Weekly") }
+            )
+            Tab(
+                selected = selectedTimeframe == 1,
+                onClick = { selectedTimeframe = 1 },
+                text = { Text("Monthly") }
+            )
+        }
+        
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(16.dp)
+        ) {
+            when (selectedTimeframe) {
+                0 -> WeeklyTrendsChart(trends = weeklyTrends)
+                1 -> MonthlyTrendsChart(trends = monthlyTrends)
+            }
+        }
+    }
+}
+
+@Composable
+private fun CorrelationsTab(correlations: List<CorrelationData>) {
+    LazyColumn(
+        modifier = Modifier
+            .fillMaxSize()
+            .padding(16.dp),
+        verticalArrangement = Arrangement.spacedBy(12.dp)
+    ) {
+        if (correlations.isEmpty()) {
+            item {
+                EmptyStateCard(
+                    icon = Icons.Default.Hub,
+                    title = "No correlations found",
+                    subtitle = "More data needed to analyze patterns"
+                )
+            }
+        } else {
+            items(correlations) { correlation ->
+                CorrelationCard(correlation = correlation)
+            }
+        }
+    }
+}
+
+@Composable
+private fun EmptyStateCard(
+    icon: ImageVector,
+    title: String,
+    subtitle: String
+) {
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        elevation = CardDefaults.cardElevation(defaultElevation = 4.dp)
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(32.dp),
+            horizontalAlignment = Alignment.CenterHorizontally
+        ) {
+            Icon(
+                imageVector = icon,
+                contentDescription = null,
+                modifier = Modifier.size(64.dp),
+                tint = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+            Spacer(modifier = Modifier.height(16.dp))
+            Text(
+                text = title,
+                style = MaterialTheme.typography.headlineSmall,
+                textAlign = TextAlign.Center
+            )
+            Spacer(modifier = Modifier.height(8.dp))
+            Text(
+                text = subtitle,
+                style = MaterialTheme.typography.bodyMedium,
+                textAlign = TextAlign.Center,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+        }
+    }
+}
                         contentDescription = null,
                         modifier = Modifier.size(48.dp),
                         tint = MaterialTheme.colorScheme.error
