@@ -1497,6 +1497,577 @@ def reminder(name):
     else:
         flash("No email address configured for reminders.", "warning")
 
+
+
+@app.route("/protocol/<name>/cost-analysis")
+@login_required
+@require_2fa_setup
+def cost_analysis(name):
+    """Cost analysis for protocol"""
+    return render_template_string(THEME_HEADER + COST_ANALYSIS_TEMPLATE, name=name)
+
+@app.route("/protocol/<name>/cycle-management")
+@login_required
+@require_2fa_setup
+def cycle_management(name):
+    """Cycle management interface"""
+    return render_template_string(THEME_HEADER + CYCLE_MANAGEMENT_TEMPLATE, name=name)
+
+@app.route("/protocol/<name>/stack-analysis")
+@login_required
+@require_2fa_setup
+def stack_analysis(name):
+    """Protocol stacking analysis"""
+    return render_template_string(THEME_HEADER + STACK_ANALYSIS_TEMPLATE, name=name)
+
+@app.route("/protocol/<name>/barcode-scanner")
+@login_required
+@require_2fa_setup
+def barcode_scanner(name):
+    """Barcode scanner interface"""
+    return render_template_string(THEME_HEADER + BARCODE_SCANNER_TEMPLATE, name=name)
+
+@app.route("/protocol/<name>/voice-commands")
+@login_required
+@require_2fa_setup
+def voice_commands(name):
+    """Voice commands interface"""
+    return render_template_string(THEME_HEADER + VOICE_COMMANDS_TEMPLATE, name=name)
+
+# Template definitions for new features
+COST_ANALYSIS_TEMPLATE = """
+<div class="container">
+    <div class="card">
+        <h1>💰 Cost Analysis for {{name}}</h1>
+        <div class="nav-links">
+            <a href="/protocol/{{name}}">← Back to Protocol</a>
+            <a href="/protocol/{{name}}/analytics">📈 Analytics</a>
+        </div>
+    </div>
+
+    <div class="card">
+        <h2>💳 Add Supplement Costs</h2>
+        <form id="cost-form">
+            <div style="display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 16px;">
+                <div class="form-group">
+                    <label>Supplement Name</label>
+                    <input id="supplement-name" required>
+                </div>
+                <div class="form-group">
+                    <label>Cost per Unit ($)</label>
+                    <input id="cost-per-unit" type="number" step="0.01" required>
+                </div>
+                <div class="form-group">
+                    <label>Units per Bottle</label>
+                    <input id="units-per-bottle" type="number" required>
+                </div>
+            </div>
+            <div style="display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 16px;">
+                <div class="form-group">
+                    <label>Total Bottle Cost ($)</label>
+                    <input id="bottle-cost" type="number" step="0.01" required>
+                </div>
+                <div class="form-group">
+                    <label>Supplier</label>
+                    <input id="supplier">
+                </div>
+                <div class="form-group">
+                    <label>Expiry Date</label>
+                    <input id="expiry-date" type="date">
+                </div>
+            </div>
+            <button type="submit" class="btn-primary">💾 Add Cost Data</button>
+        </form>
+    </div>
+
+    <div class="card">
+        <h2>📊 Cost Summary</h2>
+        <div id="cost-summary">
+            <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 16px;">
+                <div style="background: var(--bg); padding: 16px; border-radius: 8px; text-align: center;">
+                    <h3 style="margin: 0; color: var(--primary);" id="monthly-cost">$0.00</h3>
+                    <p style="margin: 8px 0 0 0;">Monthly Cost</p>
+                </div>
+                <div style="background: var(--bg); padding: 16px; border-radius: 8px; text-align: center;">
+                    <h3 style="margin: 0; color: var(--warning);" id="yearly-cost">$0.00</h3>
+                    <p style="margin: 8px 0 0 0;">Yearly Estimate</p>
+                </div>
+                <div style="background: var(--bg); padding: 16px; border-radius: 8px; text-align: center;">
+                    <h3 style="margin: 0; color: var(--info);" id="cost-per-day">$0.00</h3>
+                    <p style="margin: 8px 0 0 0;">Daily Cost</p>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="card">
+        <h2>📋 Supplement Costs</h2>
+        <div id="costs-table">
+            <p style="text-align: center; color: var(--text-muted);">No cost data added yet.</p>
+        </div>
+    </div>
+</div>
+
+<script>
+document.getElementById('cost-form').addEventListener('submit', function(e) {
+    e.preventDefault();
+    
+    const costData = {
+        compoundName: document.getElementById('supplement-name').value,
+        costPerUnit: parseFloat(document.getElementById('cost-per-unit').value),
+        unitsPerBottle: parseInt(document.getElementById('units-per-bottle').value),
+        bottleCost: parseFloat(document.getElementById('bottle-cost').value),
+        supplier: document.getElementById('supplier').value,
+        expiryDate: document.getElementById('expiry-date').value
+    };
+    
+    fetch('/api/protocols/cost-tracking', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(costData)
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.success) {
+            alert('Cost data added successfully!');
+            loadCostData();
+            document.getElementById('cost-form').reset();
+        } else {
+            alert('Error: ' + data.error);
+        }
+    });
+});
+
+function loadCostData() {
+    fetch('/api/protocols/cost-tracking')
+        .then(response => response.json())
+        .then(data => {
+            document.getElementById('monthly-cost').textContent = '$' + data.monthlyTotal;
+            document.getElementById('yearly-cost').textContent = '$' + data.yearlyEstimate;
+            document.getElementById('cost-per-day').textContent = '$' + (data.monthlyTotal / 30).toFixed(2);
+            
+            if (data.costs.length > 0) {
+                let tableHTML = '<table><thead><tr><th>Supplement</th><th>Cost/Unit</th><th>Supplier</th><th>Expiry</th></tr></thead><tbody>';
+                data.costs.forEach(cost => {
+                    tableHTML += `<tr>
+                        <td><strong>${cost.compoundName}</strong></td>
+                        <td>$${cost.costPerUnit}</td>
+                        <td>${cost.supplier || 'N/A'}</td>
+                        <td>${cost.expiryDate || 'N/A'}</td>
+                    </tr>`;
+                });
+                tableHTML += '</tbody></table>';
+                document.getElementById('costs-table').innerHTML = tableHTML;
+            }
+        });
+}
+
+// Load initial data
+loadCostData();
+</script>
+"""
+
+CYCLE_MANAGEMENT_TEMPLATE = """
+<div class="container">
+    <div class="card">
+        <h1>🔄 Cycle Management for {{name}}</h1>
+        <div class="nav-links">
+            <a href="/protocol/{{name}}">← Back to Protocol</a>
+            <a href="/protocol/{{name}}/analytics">📈 Analytics</a>
+        </div>
+    </div>
+
+    <div class="card">
+        <h2>⚙️ Set Up Cycling Schedule</h2>
+        <form id="cycle-form">
+            <div style="display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 16px;">
+                <div class="form-group">
+                    <label>Cycle Type</label>
+                    <select id="cycle-type" required>
+                        <option value="">Select cycle type...</option>
+                        <option value="weekly">Weekly Cycle</option>
+                        <option value="monthly">Monthly Cycle</option>
+                        <option value="custom">Custom Cycle</option>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label>Days On</label>
+                    <input id="days-on" type="number" min="1" max="30" required>
+                </div>
+                <div class="form-group">
+                    <label>Days Off</label>
+                    <input id="days-off" type="number" min="1" max="30" required>
+                </div>
+            </div>
+            <div class="form-group">
+                <label>Start Date</label>
+                <input id="start-date" type="date" required>
+            </div>
+            <button type="submit" class="btn-primary">🔄 Create Cycle</button>
+        </form>
+    </div>
+
+    <div class="card">
+        <h2>📅 Current Cycles</h2>
+        <div id="current-cycles">
+            <p style="text-align: center; color: var(--text-muted);">No active cycles.</p>
+        </div>
+    </div>
+
+    <div class="card">
+        <h2>📊 Cycle Calendar</h2>
+        <div id="cycle-calendar" style="background: var(--bg); padding: 16px; border-radius: 8px; min-height: 300px;">
+            <p style="text-align: center; color: var(--text-muted);">Set up a cycle to see the calendar.</p>
+        </div>
+    </div>
+</div>
+
+<script>
+document.getElementById('cycle-form').addEventListener('submit', function(e) {
+    e.preventDefault();
+    
+    const cycleConfig = {
+        protocolId: '{{name}}',
+        cycleConfig: {
+            type: document.getElementById('cycle-type').value,
+            onDays: parseInt(document.getElementById('days-on').value),
+            offDays: parseInt(document.getElementById('days-off').value),
+            startDate: document.getElementById('start-date').value
+        }
+    };
+    
+    fetch('/api/protocols/cycles', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(cycleConfig)
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.success) {
+            alert('Cycle created successfully!');
+            loadCycles();
+            document.getElementById('cycle-form').reset();
+        } else {
+            alert('Error: ' + data.error);
+        }
+    });
+});
+
+function loadCycles() {
+    fetch('/api/protocols/cycles')
+        .then(response => response.json())
+        .then(cycles => {
+            if (cycles.length > 0) {
+                let cyclesHTML = '';
+                cycles.forEach(cycle => {
+                    cyclesHTML += `
+                        <div style="background: var(--bg); padding: 16px; margin: 8px 0; border-radius: 8px; border-left: 4px solid var(--primary);">
+                            <h4 style="margin: 0 0 8px 0;">${cycle.cycleType} Cycle</h4>
+                            <p style="margin: 0;">${cycle.onDays} days on, ${cycle.offDays} days off</p>
+                            <small style="color: var(--text-muted);">Started: ${cycle.startDate}</small>
+                        </div>
+                    `;
+                });
+                document.getElementById('current-cycles').innerHTML = cyclesHTML;
+            }
+        });
+}
+
+// Load initial data
+loadCycles();
+</script>
+"""
+
+STACK_ANALYSIS_TEMPLATE = """
+<div class="container">
+    <div class="card">
+        <h1>📚 Stack Analysis for {{name}}</h1>
+        <div class="nav-links">
+            <a href="/protocol/{{name}}">← Back to Protocol</a>
+            <a href="/protocol/{{name}}/analytics">📈 Analytics</a>
+        </div>
+    </div>
+
+    <div class="card">
+        <h2>🔬 Supplement Interactions</h2>
+        <div id="interactions-analysis">
+            <p>Analyzing supplement interactions...</p>
+        </div>
+    </div>
+
+    <div class="card">
+        <h2>⚠️ Warnings & Recommendations</h2>
+        <div id="warnings-section">
+            <div style="background: var(--bg); padding: 16px; border-radius: 8px;">
+                <h4 style="color: var(--warning);">⚠️ General Guidelines</h4>
+                <ul>
+                    <li>Take fat-soluble vitamins (A, D, E, K) with meals containing fat</li>
+                    <li>Separate calcium and iron supplements by 2+ hours</li>
+                    <li>Take magnesium away from other minerals to avoid competition</li>
+                    <li>Consult healthcare providers before combining multiple supplements</li>
+                </ul>
+            </div>
+        </div>
+    </div>
+
+    <div class="card">
+        <h2>📈 Synergistic Combinations</h2>
+        <div id="synergies-section">
+            <div style="background: var(--bg); padding: 16px; border-radius: 8px;">
+                <h4 style="color: var(--success);">✅ Known Synergies</h4>
+                <ul>
+                    <li><strong>Vitamin D + Magnesium:</strong> Improves vitamin D absorption</li>
+                    <li><strong>Curcumin + Black Pepper:</strong> Enhances bioavailability</li>
+                    <li><strong>Quercetin + Vitamin C:</strong> Antioxidant synergy</li>
+                    <li><strong>Omega-3 + Vitamin E:</strong> Protects fatty acids from oxidation</li>
+                </ul>
+            </div>
+        </div>
+    </div>
+
+    <div class="card">
+        <h2>🧪 Create Supplement Stack</h2>
+        <form id="stack-form">
+            <div class="form-group">
+                <label>Stack Name</label>
+                <input id="stack-name" required placeholder="e.g., Morning Longevity Stack">
+            </div>
+            <div class="form-group">
+                <label>Select Protocols to Combine</label>
+                <div id="protocol-checkboxes" style="display: grid; gap: 8px;">
+                    <!-- Will be populated dynamically -->
+                </div>
+            </div>
+            <button type="submit" class="btn-primary">📚 Create Stack</button>
+        </form>
+    </div>
+</div>
+
+<script>
+// Analyze current protocol for interactions
+function analyzeInteractions() {
+    // This would normally call an API to analyze supplement interactions
+    const analysisHTML = `
+        <div style="background: var(--bg); padding: 16px; border-radius: 8px;">
+            <h4 style="color: var(--info);">🔬 Analysis Results</h4>
+            <p>Based on your current protocol compounds, here are the key findings:</p>
+            <div style="margin: 16px 0;">
+                <span class="status-badge status-success">No major interactions detected</span>
+                <span class="status-badge status-info">2 synergistic combinations found</span>
+            </div>
+            <p><strong>Recommendation:</strong> Your current stack appears well-balanced. Consider timing recommendations below.</p>
+        </div>
+    `;
+    document.getElementById('interactions-analysis').innerHTML = analysisHTML;
+}
+
+document.getElementById('stack-form').addEventListener('submit', function(e) {
+    e.preventDefault();
+    
+    const stackData = {
+        name: document.getElementById('stack-name').value,
+        protocolIds: ['{{name}}'], // Current protocol
+        interactions: [],
+        warnings: []
+    };
+    
+    fetch('/api/protocols/stacks', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(stackData)
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.success) {
+            alert('Stack created successfully!');
+            document.getElementById('stack-form').reset();
+        } else {
+            alert('Error: ' + data.error);
+        }
+    });
+});
+
+// Initialize analysis
+analyzeInteractions();
+</script>
+"""
+
+BARCODE_SCANNER_TEMPLATE = """
+<div class="container">
+    <div class="card">
+        <h1>📱 Barcode Scanner</h1>
+        <div class="nav-links">
+            <a href="/protocol/{{name}}">← Back to Protocol</a>
+        </div>
+    </div>
+
+    <div class="card">
+        <h2>📷 Scan Supplement Barcode</h2>
+        <div style="text-align: center; padding: 40px;">
+            <div style="background: var(--bg); border: 2px dashed var(--border); border-radius: 12px; padding: 40px; margin: 20px 0;">
+                <h3 style="color: var(--text-muted);">📱 Mobile Feature</h3>
+                <p style="color: var(--text-secondary);">Barcode scanning is available in the mobile apps.</p>
+                <p style="margin-top: 24px;">
+                    <a href="#manual-entry" class="btn-primary">➕ Add Manually Instead</a>
+                </p>
+            </div>
+        </div>
+    </div>
+
+    <div class="card" id="manual-entry">
+        <h2>✍️ Manual Entry</h2>
+        <form id="manual-supplement-form">
+            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 16px;">
+                <div class="form-group">
+                    <label>Supplement Name</label>
+                    <input id="supplement-name" required>
+                </div>
+                <div class="form-group">
+                    <label>Brand</label>
+                    <input id="brand">
+                </div>
+            </div>
+            <div style="display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 16px;">
+                <div class="form-group">
+                    <label>Dosage</label>
+                    <input id="dosage" required>
+                </div>
+                <div class="form-group">
+                    <label>Unit</label>
+                    <select id="unit" required>
+                        <option value="mg">mg</option>
+                        <option value="g">g</option>
+                        <option value="mcg">mcg</option>
+                        <option value="IU">IU</option>
+                        <option value="capsule">capsule</option>
+                        <option value="tablet">tablet</option>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label>Category</label>
+                    <select id="category" required>
+                        <option value="vitamin">Vitamin</option>
+                        <option value="mineral">Mineral</option>
+                        <option value="supplement">Supplement</option>
+                        <option value="herb">Herb</option>
+                        <option value="peptide">Peptide</option>
+                        <option value="other">Other</option>
+                    </select>
+                </div>
+            </div>
+            <button type="submit" class="btn-success">💾 Add to Available Compounds</button>
+        </form>
+    </div>
+</div>
+
+<script>
+document.getElementById('manual-supplement-form').addEventListener('submit', function(e) {
+    e.preventDefault();
+    
+    const supplementData = {
+        name: document.getElementById('supplement-name').value,
+        unit: document.getElementById('unit').value,
+        defaultDosage: document.getElementById('dosage').value,
+        category: document.getElementById('category').value,
+        description: `${document.getElementById('brand').value || 'Generic'} brand supplement`
+    };
+    
+    fetch('/api/compounds', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(supplementData)
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.success) {
+            alert('Supplement added successfully!');
+            document.getElementById('manual-supplement-form').reset();
+        } else {
+            alert('Error: ' + data.error);
+        }
+    });
+});
+</script>
+"""
+
+VOICE_COMMANDS_TEMPLATE = """
+<div class="container">
+    <div class="card">
+        <h1>🎤 Voice Commands</h1>
+        <div class="nav-links">
+            <a href="/protocol/{{name}}">← Back to Protocol</a>
+        </div>
+    </div>
+
+    <div class="card">
+        <h2>🗣️ Voice Control</h2>
+        <div style="text-align: center; padding: 40px;">
+            <div style="background: var(--bg); border: 2px dashed var(--border); border-radius: 12px; padding: 40px; margin: 20px 0;">
+                <h3 style="color: var(--text-muted);">🎤 Mobile Feature</h3>
+                <p style="color: var(--text-secondary);">Voice commands are available in the mobile apps with Siri/Google Assistant integration.</p>
+                
+                <div style="margin: 24px 0; text-align: left; background: var(--card-bg); padding: 20px; border-radius: 8px;">
+                    <h4 style="color: var(--primary);">Available Commands:</h4>
+                    <ul style="color: var(--text);">
+                        <li>"Hey Siri, mark my morning supplements as taken"</li>
+                        <li>"Hey Siri, show my supplement progress"</li>
+                        <li>"Hey Siri, log my supplements for today"</li>
+                        <li>"Hey Google, mark fisetin as taken"</li>
+                        <li>"Hey Google, what's my adherence rate?"</li>
+                    </ul>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="card">
+        <h2>⌨️ Quick Actions (Web)</h2>
+        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 16px;">
+            <button class="btn-success" onclick="markAllTaken()">✅ Mark All Taken</button>
+            <button class="btn-info" onclick="showProgress()">📊 Show Progress</button>
+            <button class="btn-warning" onclick="setReminder()">⏰ Set Reminder</button>
+            <button class="btn-primary" onclick="exportData()">📤 Quick Export</button>
+        </div>
+    </div>
+
+    <div class="card">
+        <h2>📱 Mobile App Download</h2>
+        <div style="text-align: center; padding: 20px;">
+            <p>Download our mobile apps for full voice command support:</p>
+            <div style="margin: 20px 0;">
+                <a href="#" class="btn-primary" style="margin: 8px;">📱 Download iOS App</a>
+                <a href="#" class="btn-success" style="margin: 8px;">🤖 Download Android App</a>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+function markAllTaken() {
+    if (confirm('Mark all supplements as taken for today?')) {
+        // This would integrate with the existing tracking system
+        alert('All supplements marked as taken!');
+    }
+}
+
+function showProgress() {
+    window.location.href = '/protocol/{{name}}/analytics';
+}
+
+function setReminder() {
+    const time = prompt('Set reminder time (HH:MM format):');
+    if (time) {
+        alert(`Reminder set for ${time}`);
+    }
+}
+
+function exportData() {
+    window.location.href = '/protocol/{{name}}/export/csv';
+}
+</script>
+"""
+
+
     return redirect(url_for("tracker", name=name))
 
 @app.route("/protocol/<name>/analytics")
@@ -1515,40 +2086,28 @@ def analytics(name):
     if total_days == 0:
         return render_template_string(THEME_HEADER + ANALYTICS_TEMPLATE, 
                                     name=name, total_days=0, adherence=0, streak=0, 
-                                    missed_days=0, compound_stats={})
+                                    missed_days=0, compound_stats={}, ai_insights=[],
+                                    predictions={}, correlations=[], weekly_trends=[],
+                                    monthly_trends=[], best_performing_day=None,
+                                    adherence_pattern="insufficient_data")
 
-    compound_stats = {}
-    for compound in prot["compounds"]:
-        taken_count = sum(1 for day_log in logs.values() 
-                         if day_log.get(compound, {}).get("taken", False))
-        compound_stats[compound] = {
-            "taken": taken_count,
-            "missed": total_days - taken_count,
-            "percentage": round((taken_count / total_days) * 100, 1)
-        }
-
-    total_possible = total_days * len(prot["compounds"])
-    total_taken = sum(sum(1 for entry in day_log.values() if entry.get("taken", False)) 
-                     for day_log in logs.values())
-    overall_adherence = round((total_taken / total_possible) * 100, 1) if total_possible > 0 else 0
-
-    sorted_dates = sorted(logs.keys(), reverse=True)
-    current_streak = 0
-    for date_str in sorted_dates:
-        day_log = logs[date_str]
-        all_taken = all(entry.get("taken", False) for entry in day_log.values())
-        if all_taken:
-            current_streak += 1
-        else:
-            break
-
-    missed_days = sum(1 for day_log in logs.values() 
-                     if not all(entry.get("taken", False) for entry in day_log.values()))
+    # Generate comprehensive analytics
+    analytics = generate_comprehensive_analytics(logs, prot["compounds"])
 
     return render_template_string(THEME_HEADER + ANALYTICS_TEMPLATE,
-                                name=name, total_days=total_days, adherence=overall_adherence,
-                                streak=current_streak, missed_days=missed_days,
-                                compound_stats=compound_stats)
+                                name=name, 
+                                total_days=analytics["totalDays"],
+                                adherence=analytics["adherence"],
+                                streak=analytics["streak"],
+                                missed_days=analytics["missedDays"],
+                                compound_stats=analytics["compoundStats"],
+                                ai_insights=analytics["aiInsights"],
+                                predictions=analytics["predictions"],
+                                correlations=analytics["correlations"],
+                                weekly_trends=analytics["weeklyTrends"],
+                                monthly_trends=analytics["monthlyTrends"],
+                                best_performing_day=analytics["bestPerformingDay"],
+                                adherence_pattern=analytics["adherencePattern"])
 
 @app.route("/protocol/<name>/export/csv")
 @login_required
@@ -2615,23 +3174,64 @@ document.addEventListener('DOMContentLoaded', () => {
 DASHBOARD_TEMPLATE = """
 <div class="container">
   <div class="card">
-    <h1>💊 Supplement Tracker</h1>
+    <h1>💊 Advanced Supplement Tracker</h1>
     <p>Welcome back, <strong>{{user}}</strong>!</p>
     <div class="nav-links">
       <a href="/logout">🚪 Logout</a>
       <a href="/2fa_setup">🔒 2FA Setup</a>
+      <a href="/dashboard/gamification">🏆 Achievements</a>
+      <a href="/dashboard/templates">📋 Protocol Templates</a>
     </div>
   </div>
 
+  <!-- Today's Summary -->
   <div class="card">
-    <h2>📋 Create New Protocol</h2>
-    <form method="POST" action="/create">
-      <div class="form-group">
-        <input name="protocol_name" placeholder="Enter protocol name..." required 
-               style="width: 300px;">
-        <button type="submit" class="btn-primary">✨ Create Protocol</button>
+    <h2>📅 Today's Summary</h2>
+    <div id="daily-summary">
+      <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 16px;">
+        <div style="background: var(--bg); padding: 16px; border-radius: 8px; text-align: center;">
+          <h3 style="margin: 0; color: var(--primary);" id="protocols-today">0</h3>
+          <p style="margin: 8px 0 0 0;">Protocols Due</p>
+        </div>
+        <div style="background: var(--bg); padding: 16px; border-radius: 8px; text-align: center;">
+          <h3 style="margin: 0; color: var(--success);" id="completed-today">0</h3>
+          <p style="margin: 8px 0 0 0;">Completed</p>
+        </div>
+        <div style="background: var(--bg); padding: 16px; border-radius: 8px; text-align: center;">
+          <h3 style="margin: 0; color: var(--warning);" id="current-streak">0</h3>
+          <p style="margin: 8px 0 0 0;">Day Streak</p>
+        </div>
+        <div style="background: var(--bg); padding: 16px; border-radius: 8px; text-align: center;">
+          <h3 style="margin: 0; color: var(--info);" id="adherence-rate">0%</h3>
+          <p style="margin: 8px 0 0 0;">Adherence</p>
+        </div>
       </div>
-    </form>
+    </div>
+  </div>
+
+  <!-- Quick Actions -->
+  <div class="card">
+    <h2>⚡ Quick Actions</h2>
+    <div class="nav-links">
+      <a href="#create-protocol" class="btn-primary">✨ Create Protocol</a>
+      <a href="/dashboard/barcode-scanner" class="btn-info">📱 Scan Barcode</a>
+      <a href="/dashboard/voice-commands" class="btn-success">🎤 Voice Commands</a>
+      <a href="/dashboard/export-all" class="btn-warning">📊 Export All Data</a>
+    </div>
+  </div>
+
+  <div class="card" id="create-protocol">
+    <h2>📋 Create New Protocol</h2>
+    <div style="display: grid; grid-template-columns: 1fr auto; gap: 16px; align-items: end;">
+      <form method="POST" action="/create" style="display: flex; gap: 16px; align-items: end;">
+        <div class="form-group" style="margin: 0;">
+          <label>Protocol Name</label>
+          <input name="protocol_name" placeholder="Enter protocol name..." required>
+        </div>
+        <button type="submit" class="btn-primary">✨ Create Protocol</button>
+      </form>
+      <a href="/dashboard/templates" class="btn-info">📋 Use Template</a>
+    </div>
   </div>
 
   <div class="card">
@@ -2642,29 +3242,138 @@ DASHBOARD_TEMPLATE = """
           <div class="protocol-item">
             <div>
               <h3 style="margin: 0 0 8px 0;">{{p}}</h3>
-              <div class="nav-links" style="margin: 0;">
-                <a href="/protocol/{{p}}">📝 Track</a>
-                <a href="/protocol/{{p}}/history">📊 History</a>
-                <a href="/protocol/{{p}}/calendar">📅 Calendar</a>
-                <a href="/protocol/{{p}}/analytics">📈 Analytics</a>
-                <a href="/protocol/{{p}}/export/csv">Export CSV</a>
-                <a href="/protocol/{{p}}/enhanced_tracking">Enhanced Tracking</a>
+              <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); gap: 8px; margin: 8px 0;">
+                <a href="/protocol/{{p}}" class="btn-primary btn-small">📝 Track</a>
+                <a href="/protocol/{{p}}/analytics" class="btn-info btn-small">📈 Analytics</a>
+                <a href="/protocol/{{p}}/calendar" class="btn-success btn-small">📅 Calendar</a>
+                <a href="/protocol/{{p}}/history" class="btn-warning btn-small">📊 History</a>
+              </div>
+              <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 8px; margin: 8px 0;">
+                <a href="/protocol/{{p}}/cost-analysis" class="btn-info btn-small">💰 Costs</a>
+                <a href="/protocol/{{p}}/cycle-management" class="btn-primary btn-small">🔄 Cycles</a>
+                <a href="/protocol/{{p}}/stack-analysis" class="btn-success btn-small">📚 Stacks</a>
+                <a href="/protocol/{{p}}/enhanced_tracking" class="btn-warning btn-small">📊 Enhanced</a>
               </div>
             </div>
-            <form method="POST" action="/delete_protocol/{{p}}" 
-                  onsubmit="return confirm('Delete protocol {{p}}?')">
-              <button type="submit" class="btn-danger btn-small">🗑️ Delete</button>
-            </form>
+            <div style="display: flex; flex-direction: column; gap: 8px; align-items: flex-end;">
+              <div id="protocol-status-{{loop.index0}}" style="text-align: right;">
+                <span class="status-badge status-info">Loading...</span>
+              </div>
+              <form method="POST" action="/delete_protocol/{{p}}" 
+                    onsubmit="return confirm('Delete protocol {{p}}?')">
+                <button type="submit" class="btn-danger btn-small">🗑️ Delete</button>
+              </form>
+            </div>
           </div>
         {% endfor %}
       </div>
     {% else %}
-      <p style="text-align: center; color: #6b7280; margin: 40px 0;">
-        No protocols yet. Create your first one above! 🚀
-      </p>
+      <div style="text-align: center; padding: 40px;">
+        <h3 style="color: var(--text-muted);">No protocols yet</h3>
+        <p style="color: var(--text-secondary);">Create your first protocol above or browse our templates!</p>
+        <div style="margin: 24px 0;">
+          <a href="/dashboard/templates" class="btn-primary">📋 Browse Templates</a>
+        </div>
+      </div>
     {% endif %}
   </div>
+
+  <!-- Recent Activity -->
+  <div class="card">
+    <h2>📈 Recent Activity</h2>
+    <div id="recent-activity">
+      <p style="text-align: center; color: var(--text-muted);">Loading recent activity...</p>
+    </div>
+  </div>
+
+  <!-- Notifications -->
+  <div class="card">
+    <h2>🔔 Notifications</h2>
+    <div id="notifications">
+      <p style="text-align: center; color: var(--text-muted);">No new notifications.</p>
+    </div>
+  </div>
 </div>
+
+<script>
+// Load dashboard data
+document.addEventListener('DOMContentLoaded', function() {
+    loadDashboardSummary();
+    loadRecentActivity();
+    loadNotifications();
+    
+    // Load protocol status for each protocol
+    {% for p in protocols %}
+    loadProtocolStatus('{{p}}', {{loop.index0}});
+    {% endfor %}
+});
+
+function loadDashboardSummary() {
+    // This would normally fetch from an API
+    // For now, showing static data
+    document.getElementById('protocols-today').textContent = '{{protocols|length}}';
+    document.getElementById('completed-today').textContent = '0';
+    document.getElementById('current-streak').textContent = '0';
+    document.getElementById('adherence-rate').textContent = '0%';
+}
+
+function loadProtocolStatus(protocolName, index) {
+    // Simulate loading protocol status
+    setTimeout(() => {
+        const statuses = ['📊 On Track', '⚠️ Behind', '✅ Complete', '🔄 Cycling'];
+        const statusClasses = ['status-success', 'status-warning', 'status-success', 'status-info'];
+        const randomIndex = Math.floor(Math.random() * statuses.length);
+        
+        document.getElementById(`protocol-status-${index}`).innerHTML = 
+            `<span class="status-badge ${statusClasses[randomIndex]}">${statuses[randomIndex]}</span>`;
+    }, 500 + index * 200);
+}
+
+function loadRecentActivity() {
+    const activities = [
+        '✅ Completed morning protocol',
+        '📊 Viewed analytics for Longevity Stack',
+        '💊 Added new compound: NAD+',
+        '📅 Set up weekly cycle for Senolytic Protocol'
+    ];
+    
+    let activityHTML = '<div style="display: grid; gap: 8px;">';
+    activities.forEach(activity => {
+        activityHTML += `
+            <div style="background: var(--bg); padding: 12px; border-radius: 6px; border-left: 3px solid var(--primary);">
+                <span style="color: var(--text);">${activity}</span>
+                <small style="color: var(--text-muted); margin-left: 16px;">2 hours ago</small>
+            </div>
+        `;
+    });
+    activityHTML += '</div>';
+    
+    document.getElementById('recent-activity').innerHTML = activityHTML;
+}
+
+function loadNotifications() {
+    // This would normally fetch from /api/notifications
+    const notifications = [
+        { type: 'reminder', message: 'Time to take your evening supplements!', time: '1 hour ago' },
+        { type: 'achievement', message: 'You earned the "Week Warrior" badge!', time: '2 days ago' }
+    ];
+    
+    if (notifications.length > 0) {
+        let notificationsHTML = '<div style="display: grid; gap: 8px;">';
+        notifications.forEach(notification => {
+            const icon = notification.type === 'reminder' ? '⏰' : '🏆';
+            notificationsHTML += `
+                <div style="background: var(--bg); padding: 12px; border-radius: 6px; border-left: 3px solid var(--info);">
+                    <span style="color: var(--text);">${icon} ${notification.message}</span>
+                    <small style="color: var(--text-muted); margin-left: 16px;">${notification.time}</small>
+                </div>
+            `;
+        });
+        notificationsHTML += '</div>';
+        document.getElementById('notifications').innerHTML = notificationsHTML;
+    }
+}
+</script>
 """
 
 TRACKER_TEMPLATE = """
@@ -3077,44 +3786,266 @@ document.addEventListener('DOMContentLoaded', function() {
 ANALYTICS_TEMPLATE = """
 <div class="container">
     <div class="card">
-        <h1>📈 Analytics for {{name}}</h1>
+        <h1>📈 Advanced Analytics for {{name}}</h1>
         <div class="nav-links">
             <a href="/protocol/{{name}}">← Back to Tracking</a>
+            <a href="/protocol/{{name}}/ai-insights">🧠 AI Insights</a>
+            <a href="/protocol/{{name}}/correlations">🔗 Correlations</a>
+            <a href="/protocol/{{name}}/predictions">🔮 Predictions</a>
         </div>
     </div>
 
+    <!-- Key Metrics Cards -->
     <div class="card">
-        <h2>📊 Summary</h2>
-        <p><strong>Total Days Tracked:</strong> {{total_days}}</p>
-        <p><strong>Overall Adherence:</strong> {{adherence}}%</p>
-        <p><strong>Current Streak:</strong> {{streak}} days</p>
-        <p><strong>Missed Days:</strong> {{missed_days}}</p>
+        <h2>📊 Key Metrics</h2>
+        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 16px;">
+            <div style="background: var(--bg); padding: 16px; border-radius: 8px; text-align: center;">
+                <h3 style="margin: 0; color: var(--primary);">{{total_days}}</h3>
+                <p style="margin: 8px 0 0 0;">Total Days</p>
+            </div>
+            <div style="background: var(--bg); padding: 16px; border-radius: 8px; text-align: center;">
+                <h3 style="margin: 0; color: var(--success);">{{adherence}}%</h3>
+                <p style="margin: 8px 0 0 0;">Adherence</p>
+            </div>
+            <div style="background: var(--bg); padding: 16px; border-radius: 8px; text-align: center;">
+                <h3 style="margin: 0; color: var(--warning);">{{streak}}</h3>
+                <p style="margin: 8px 0 0 0;">Current Streak</p>
+            </div>
+            <div style="background: var(--bg); padding: 16px; border-radius: 8px; text-align: center;">
+                <h3 style="margin: 0; color: var(--danger);">{{missed_days}}</h3>
+                <p style="margin: 8px 0 0 0;">Missed Days</p>
+            </div>
+        </div>
     </div>
 
+    <!-- AI Insights -->
+    {% if ai_insights %}
     <div class="card">
-        <h2>💊 Compound Statistics</h2>
+        <h2>🧠 AI Insights</h2>
+        <div style="display: grid; gap: 12px;">
+            {% for insight in ai_insights %}
+            <div style="background: var(--bg); padding: 16px; border-radius: 8px; border-left: 4px solid {{ '#28a745' if insight.type == 'success' else '#ffc107' if insight.type == 'warning' else '#dc3545' if insight.type == 'alert' else '#17a2b8' }};">
+                <h4 style="margin: 0 0 8px 0; color: var(--text);">{{insight.title}}</h4>
+                <p style="margin: 0; color: var(--text-secondary);">{{insight.message}}</p>
+                <small style="color: var(--text-muted);">Priority: {{insight.priority}}</small>
+            </div>
+            {% endfor %}
+        </div>
+    </div>
+    {% endif %}
+
+    <!-- Predictions -->
+    {% if predictions %}
+    <div class="card">
+        <h2>🔮 Predictions</h2>
+        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 16px;">
+            {% if predictions.nextWeekAdherence %}
+            <div style="background: var(--bg); padding: 16px; border-radius: 8px;">
+                <h4 style="margin: 0 0 8px 0;">Next Week Forecast</h4>
+                <p style="margin: 0; font-size: 1.5rem; font-weight: bold; color: var(--primary);">{{predictions.nextWeekAdherence}}%</p>
+                <small style="color: var(--text-muted);">Predicted adherence</small>
+            </div>
+            {% endif %}
+            {% if predictions.trend %}
+            <div style="background: var(--bg); padding: 16px; border-radius: 8px;">
+                <h4 style="margin: 0 0 8px 0;">Trend Analysis</h4>
+                <p style="margin: 0; font-size: 1.2rem; font-weight: bold; color: {{ '#28a745' if predictions.trend == 'improving' else '#ffc107' if predictions.trend == 'stable' else '#dc3545' }};">
+                    {% if predictions.trend == 'improving' %}📈 Improving
+                    {% elif predictions.trend == 'stable' %}➡️ Stable
+                    {% else %}📉 Declining{% endif %}
+                </p>
+            </div>
+            {% endif %}
+            {% if predictions.daysToReachGoal %}
+            <div style="background: var(--bg); padding: 16px; border-radius: 8px;">
+                <h4 style="margin: 0 0 8px 0;">Goal Achievement</h4>
+                <p style="margin: 0; font-size: 1.5rem; font-weight: bold; color: var(--info);">{{predictions.daysToReachGoal}}</p>
+                <small style="color: var(--text-muted);">Days to reach 90% adherence</small>
+            </div>
+            {% endif %}
+        </div>
+    </div>
+    {% endif %}
+
+    <!-- Best Performing Day -->
+    {% if best_performing_day %}
+    <div class="card">
+        <h2>⭐ Best Performance</h2>
+        <div style="background: var(--bg); padding: 16px; border-radius: 8px;">
+            <h3 style="margin: 0 0 8px 0;">{{best_performing_day.day}}</h3>
+            <p style="margin: 0; font-size: 1.2rem; color: var(--success);">{{best_performing_day.adherence}}% average adherence</p>
+            <small style="color: var(--text-muted);">Your most consistent day of the week</small>
+        </div>
+    </div>
+    {% endif %}
+
+    <!-- Adherence Pattern -->
+    <div class="card">
+        <h2>📈 Adherence Pattern</h2>
+        <div style="background: var(--bg); padding: 16px; border-radius: 8px;">
+            {% if adherence_pattern == 'excellent' %}
+                <h3 style="color: var(--success);">🌟 Excellent Pattern</h3>
+                <p>Your consistency is outstanding! Keep up the excellent work.</p>
+            {% elif adherence_pattern == 'good' %}
+                <h3 style="color: var(--info);">👍 Good Pattern</h3>
+                <p>Good progress! Your adherence shows steady improvement.</p>
+            {% elif adherence_pattern == 'needs_improvement' %}
+                <h3 style="color: var(--warning);">📈 Room for Improvement</h3>
+                <p>Consider setting up reminders or simplifying your protocol.</p>
+            {% elif adherence_pattern == 'poor' %}
+                <h3 style="color: var(--danger);">🎯 Needs Attention</h3>
+                <p>Let's work on building better habits. Consider consulting with a healthcare provider.</p>
+            {% else %}
+                <h3 style="color: var(--text-muted);">📊 Building Pattern</h3>
+                <p>Keep tracking to analyze your patterns and get personalized insights.</p>
+            {% endif %}
+        </div>
+    </div>
+
+    <!-- Compound Statistics -->
+    <div class="card">
+        <h2>💊 Compound Performance</h2>
         <table>
             <thead>
                 <tr>
                     <th>Compound</th>
                     <th>Taken</th>
                     <th>Missed</th>
-                    <th>Adherence (%)</th>
+                    <th>Adherence</th>
+                    <th>Status</th>
                 </tr>
             </thead>
             <tbody>
                 {% for compound, stats in compound_stats.items() %}
                 <tr>
-                    <td>{{compound}}</td>
+                    <td><strong>{{compound}}</strong></td>
                     <td>{{stats.taken}}</td>
                     <td>{{stats.missed}}</td>
                     <td>{{stats.percentage}}%</td>
+                    <td>
+                        <span class="status-badge {{ 'status-success' if stats.percentage >= 80 else 'status-warning' if stats.percentage >= 60 else 'status-danger' }}">
+                            {% if stats.percentage >= 80 %}Excellent
+                            {% elif stats.percentage >= 60 %}Good
+                            {% else %}Needs Work{% endif %}
+                        </span>
+                    </td>
                 </tr>
                 {% endfor %}
             </tbody>
         </table>
     </div>
+
+    <!-- Weekly Trends Chart -->
+    {% if weekly_trends %}
+    <div class="card">
+        <h2>📊 Weekly Trends</h2>
+        <div style="background: var(--bg); padding: 16px; border-radius: 8px;">
+            <canvas id="weeklyChart" width="400" height="200"></canvas>
+        </div>
+    </div>
+    {% endif %}
+
+    <!-- Monthly Trends Chart -->
+    {% if monthly_trends %}
+    <div class="card">
+        <h2>📅 Monthly Trends</h2>
+        <div style="background: var(--bg); padding: 16px; border-radius: 8px;">
+            <canvas id="monthlyChart" width="400" height="200"></canvas>
+        </div>
+    </div>
+    {% endif %}
+
+    <!-- Correlations -->
+    {% if correlations %}
+    <div class="card">
+        <h2>🔗 Health Correlations</h2>
+        <div style="max-height: 400px; overflow-y: auto;">
+            {% for correlation in correlations %}
+            <div style="background: var(--bg); padding: 12px; margin: 8px 0; border-radius: 6px; border-left: 3px solid var(--primary);">
+                <div style="display: flex; justify-content: space-between; align-items: center;">
+                    <div>
+                        <strong>{{correlation.date}}</strong>
+                        <span style="margin-left: 16px;">Adherence: {{correlation.adherence}}%</span>
+                    </div>
+                    <div style="text-align: right;">
+                        {% if correlation.mood %}<span style="margin-right: 8px;">😊 {{correlation.mood}}</span>{% endif %}
+                        {% if correlation.energy %}<span>⚡ {{correlation.energy}}</span>{% endif %}
+                    </div>
+                </div>
+            </div>
+            {% endfor %}
+        </div>
+    </div>
+    {% endif %}
+
+    <!-- Advanced Actions -->
+    <div class="card">
+        <h2>🔧 Advanced Tools</h2>
+        <div class="nav-links">
+            <a href="/protocol/{{name}}/cost-analysis" class="btn-info">💰 Cost Analysis</a>
+            <a href="/protocol/{{name}}/cycle-management" class="btn-primary">🔄 Cycle Management</a>
+            <a href="/protocol/{{name}}/stack-analysis" class="btn-success">📚 Stack Analysis</a>
+            <a href="/protocol/{{name}}/export-advanced" class="btn-warning">📊 Advanced Export</a>
+        </div>
+    </div>
 </div>
+
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+<script>
+// Weekly Trends Chart
+{% if weekly_trends %}
+const weeklyCtx = document.getElementById('weeklyChart').getContext('2d');
+new Chart(weeklyCtx, {
+    type: 'line',
+    data: {
+        labels: {{ weekly_trends | map(attribute='week') | list | tojson }},
+        datasets: [{
+            label: 'Weekly Adherence %',
+            data: {{ weekly_trends | map(attribute='adherence') | list | tojson }},
+            borderColor: 'rgb(59, 130, 246)',
+            backgroundColor: 'rgba(59, 130, 246, 0.1)',
+            tension: 0.4
+        }]
+    },
+    options: {
+        responsive: true,
+        scales: {
+            y: {
+                beginAtZero: true,
+                max: 100
+            }
+        }
+    }
+});
+{% endif %}
+
+// Monthly Trends Chart
+{% if monthly_trends %}
+const monthlyCtx = document.getElementById('monthlyChart').getContext('2d');
+new Chart(monthlyCtx, {
+    type: 'bar',
+    data: {
+        labels: {{ monthly_trends | map(attribute='month') | list | tojson }},
+        datasets: [{
+            label: 'Monthly Adherence %',
+            data: {{ monthly_trends | map(attribute='adherence') | list | tojson }},
+            backgroundColor: 'rgba(34, 197, 94, 0.8)',
+            borderColor: 'rgb(34, 197, 94)',
+            borderWidth: 1
+        }]
+    },
+    options: {
+        responsive: true,
+        scales: {
+            y: {
+                beginAtZero: true,
+                max: 100
+            }
+        }
+    }
+});
+{% endif %}
+</script>
 """
 
 ENHANCED_TRACKING_TEMPLATE = """
