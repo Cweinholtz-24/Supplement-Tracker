@@ -300,6 +300,76 @@ private fun AIInsightsTab(insights: List<AIInsight>) {
 }
 
 @Composable
+package com.supplementtracker.ui.analytics
+
+import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.*
+import androidx.compose.material3.*
+import androidx.compose.runtime.*
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.dp
+
+data class AIInsight(
+    val id: String,
+    val type: String,
+    val title: String,
+    val message: String,
+    val priority: String
+)
+
+@Composable
+fun AnalyticsScreen() {
+    val insights = remember {
+        listOf(
+            AIInsight("1", "success", "Excellent Adherence!", "You're maintaining 95% adherence", "high"),
+            AIInsight("2", "warning", "Missed Doses", "You missed 2 doses this week", "medium")
+        )
+    }
+    
+    LazyColumn(
+        modifier = Modifier
+            .fillMaxSize()
+            .padding(16.dp),
+        verticalArrangement = Arrangement.spacedBy(16.dp)
+    ) {
+        item {
+            Text(
+                text = "AI Insights",
+                style = MaterialTheme.typography.headlineMedium,
+                fontWeight = FontWeight.Bold
+            )
+        }
+        
+        items(insights) { insight ->
+            AIInsightCard(insight = insight)
+        }
+    }
+}
+
+private fun AIInsight.getIcon(): ImageVector {
+    return when (type) {
+        "success" -> Icons.Default.CheckCircle
+        "warning" -> Icons.Default.Warning
+        "alert" -> Icons.Default.Error
+        else -> Icons.Default.Info
+    }
+}
+
+private fun AIInsight.getColor(): Color {
+    return when (priority) {
+        "high" -> Color.Red
+        "medium" -> Color(0xFFFF9800)
+        else -> Color.Blue
+    }
+}
+
 private fun AIInsightCard(insight: AIInsight) {
     Card(
         modifier = Modifier.fillMaxWidth(),
@@ -334,8 +404,6 @@ private fun AIInsightCard(insight: AIInsight) {
         }
     }
 }
-
-@Composable
 private fun TrendsTab(weeklyTrends: List<WeeklyTrend>, monthlyTrends: List<MonthlyTrend>) {
     var selectedTimeframe by remember { mutableStateOf(0) }
 

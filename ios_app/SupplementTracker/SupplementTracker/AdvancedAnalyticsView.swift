@@ -278,6 +278,29 @@ struct AIInsightCard: View {
     }
 }
 
+extension AIInsight {
+    var iconName: String {
+        switch type {
+        case "success": return "checkmark.circle.fill"
+        case "warning": return "exclamationmark.triangle.fill"
+        case "alert": return "xmark.circle.fill"
+        case "achievement": return "star.fill"
+        case "trending": return "chart.line.uptrend.xyaxis"
+        case "suggestion": return "lightbulb.fill"
+        default: return "info.circle.fill"
+        }
+    }
+    
+    var priorityLevel: Int {
+        switch priority {
+        case "high": return 3
+        case "medium": return 2
+        case "low": return 1
+        default: return 0
+        }
+    }
+}
+
 struct AdherencePatternCard: View {
     let pattern: String
     

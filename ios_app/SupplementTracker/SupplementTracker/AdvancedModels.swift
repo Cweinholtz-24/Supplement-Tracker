@@ -1,4 +1,3 @@
-
 import Foundation
 
 // MARK: - Advanced Analytics Models
@@ -20,7 +19,7 @@ struct AIInsight: Codable, Identifiable {
     let title: String
     let message: String
     let priority: String
-    
+
     var priorityLevel: Int {
         switch priority {
         case "high": return 3
@@ -28,7 +27,7 @@ struct AIInsight: Codable, Identifiable {
         default: return 1
         }
     }
-    
+
     var iconName: String {
         switch type {
         case "success": return "checkmark.circle.fill"
@@ -118,7 +117,7 @@ struct BiomarkerData: Codable {
     let testDate: String
     let labName: String?
     let notes: String?
-    
+
     func toDictionary() -> [String: Any] {
         var dict: [String: Any] = [
             "name": name,
@@ -126,12 +125,12 @@ struct BiomarkerData: Codable {
             "unit": unit,
             "testDate": testDate
         ]
-        
+
         if let referenceMin = referenceMin { dict["referenceMin"] = referenceMin }
         if let referenceMax = referenceMax { dict["referenceMax"] = referenceMax }
         if let labName = labName { dict["labName"] = labName }
         if let notes = notes { dict["notes"] = notes }
-        
+
         return dict
     }
 }
@@ -147,9 +146,9 @@ extension SupplementCost {
             "supplier": supplier,
             "purchaseDate": purchaseDate
         ]
-        
+
         if let expiryDate = expiryDate { dict["expiryDate"] = expiryDate }
-        
+
         return dict
     }
 }
@@ -176,12 +175,12 @@ extension SmartReminder {
             "enabled": enabled
         ]
     }
-    
+
     var isInRange: Bool {
         guard let min = referenceMin, let max = referenceMax else { return true }
         return value >= min && value <= max
     }
-    
+
     var status: String {
         if isInRange {
             return "Normal"
@@ -223,7 +222,7 @@ struct VoiceCommandResponse: Codable {
     let message: String
     let action: String
     let data: [String: Any]?
-    
+
     init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         success = try container.decode(Bool.self, forKey: .success)
@@ -231,7 +230,7 @@ struct VoiceCommandResponse: Codable {
         action = try container.decode(String.self, forKey: .action)
         data = try container.decodeIfPresent([String: Any].self, forKey: .data)
     }
-    
+
     private enum CodingKeys: String, CodingKey {
         case success, message, action, data
     }
