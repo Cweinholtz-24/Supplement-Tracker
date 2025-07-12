@@ -2067,6 +2067,28 @@ function exportData() {
 </script>
 """
 
+@app.route("/protocol/<name>/reminder")
+@login_required
+@require_2fa_setup
+def reminder(name):
+    if get_config_value('email_reminders_enabled', 'true') != 'true':
+        flash("Email reminders are currently disabled", "error")
+        return redirect(url_for("tracker", name=name))
+
+    data = load_data()
+    logs = data["protocols"][name]["logs"]
+    last = sorted(logs.keys())[-1] if logs else None
+    days_since = (date.today() - datetime.strptime(last, "%Y-%m-%d").date()).days if last else "N/A"
+    msg = f"Reminder: Log today's dose for '{name}'\nLast log: {last} ({days_since} days ago)"
+
+    email = data.get("email", "")
+    if email:
+        if send_email(email, f"Senolytic Reminder: {name}", msg):
+            flash("Reminder email sent successfully!", "success")
+        else:
+            flash("Failed to send reminder email.", "error")
+    else:
+        flash("No email address configured for reminders.", "warning")
 
     return redirect(url_for("tracker", name=name))
 
