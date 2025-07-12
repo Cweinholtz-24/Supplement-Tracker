@@ -5163,25 +5163,79 @@ def api_save_protocol_log(protocol_id):
 @app.route("/api/protocols/<protocol_id>/history", methods=["GET"])
 def api_get_protocol_history(protocol_id):
     """API endpoint to get protocol history"""
-    # Return dummy history data
-    history = [
-        {
-            "id": "1",
-            "date": "2024-01-01",
-            "compounds": {
-                "FOXO4-DRI": {"taken": True, "note": "Felt good"},
-                "Fisetin": {"taken": True, "note": ""},
-                "Quercetin": {"taken": False, "note": "Forgot to take"}
-            },
-            "mood": "Good",
-            "energy": "High",
-            "sideEffects": "None",
-            "weight": "70kg",
-            "generalNotes": "Great day overall"
-        }
-    ]
+    username = session.get('api_username')
+    if not username:
+        return jsonify({"error": "Not authenticated"}), 401
     
-    return jsonify(history), 200
+    try:
+        # Convert protocol_id back to protocol name
+        protocol_name = protocol_id.replace("_", " ").title()
+        
+        with get_db_connection() as conn:
+            cursor = conn.cursor()
+            
+            # Get protocol logs for this protocol and user
+            cursor.execute('''
+                SELECT pl.log_date, pl.compound, pl.taken, pl.note, pl.mood, pl.energy, 
+                       pl.side_effects, pl.weight, pl.general_notes
+                FROM protocol_logs pl
+                JOIN protocols p ON pl.protocol_id = p.id
+                WHERE p.name = ? AND p.user_id = (SELECT id FROM users WHERE username = ?)
+                ORDER BY pl.log_date DESC
+            ''', (protocol_name, username))
+            
+            rows = cursor.fetchall()
+            
+            # Group logs by date
+            logs_by_date = {}
+            for row in rows:
+                log_date = row[0]
+                if log_date not in logs_by_date:
+                    logs_by_date[log_date] = {
+                        "compounds": {},
+                        "mood": "",
+                        "energy": "",
+                        "sideEffects": "",
+                        "weight": "",
+                        "generalNotes": ""
+                    }
+                
+                # Add compound data
+                logs_by_date[log_date]["compounds"][row[1]] = {
+                    "taken": bool(row[2]),
+                    "note": row[3] or ""
+                }
+                
+                # Update daily metrics (take the last non-empty value for each date)
+                if row[4]:  # mood
+                    logs_by_date[log_date]["mood"] = row[4]
+                if row[5]:  # energy
+                    logs_by_date[log_date]["energy"] = row[5]
+                if row[6]:  # side_effects
+                    logs_by_date[log_date]["sideEffects"] = row[6]
+                if row[7]:  # weight
+                    logs_by_date[log_date]["weight"] = row[7]
+                if row[8]:  # general_notes
+                    logs_by_date[log_date]["generalNotes"] = row[8]
+            
+            # Convert to expected format
+            history = []
+            for i, (log_date, data) in enumerate(logs_by_date.items()):
+                history.append({
+                    "id": str(i + 1),
+                    "date": log_date,
+                    "compounds": data["compounds"],
+                    "mood": data["mood"],
+                    "energy": data["energy"],
+                    "sideEffects": data["sideEffects"],
+                    "weight": data["weight"],
+                    "generalNotes": data["generalNotes"]
+                })
+            
+            return jsonify(history), 200
+            
+    except Exception as e:
+        return jsonify({"error": f"Failed to fetch protocol history: {str(e)}"}), 500
 
 @app.route("/api/user/profile", methods=["GET"])
 def api_get_user_profile():
