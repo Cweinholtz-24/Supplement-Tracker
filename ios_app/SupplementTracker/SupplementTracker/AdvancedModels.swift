@@ -134,6 +134,48 @@ struct BiomarkerData: Codable {
         
         return dict
     }
+}
+
+// MARK: - Supplement Cost Extension
+extension SupplementCost {
+    func toDictionary() -> [String: Any] {
+        var dict: [String: Any] = [
+            "compoundName": compoundName,
+            "costPerUnit": costPerUnit,
+            "unitsPerBottle": unitsPerBottle,
+            "bottleCost": bottleCost,
+            "supplier": supplier,
+            "purchaseDate": purchaseDate
+        ]
+        
+        if let expiryDate = expiryDate { dict["expiryDate"] = expiryDate }
+        
+        return dict
+    }
+}
+
+// MARK: - Additional Model Extensions
+extension WearableMetric {
+    func toDictionary() -> [String: Any] {
+        return [
+            "type": type,
+            "value": value,
+            "unit": unit,
+            "date": date
+        ]
+    }
+}
+
+extension SmartReminder {
+    func toDictionary() -> [String: Any] {
+        return [
+            "protocolId": protocolId,
+            "type": type,
+            "trigger": trigger,
+            "message": message,
+            "enabled": enabled
+        ]
+    }
     
     var isInRange: Bool {
         guard let min = referenceMin, let max = referenceMax else { return true }

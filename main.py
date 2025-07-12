@@ -5527,6 +5527,201 @@ def api_comprehensive_export():
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
+@app.route("/api/compounds", methods=["GET"])
+def api_get_compounds():
+    """API endpoint to get available compounds for mobile apps"""
+    try:
+        with get_db_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute("SELECT name, unit, default_dosage, category, description FROM default_compounds ORDER BY name")
+            compounds = []
+            for row in cursor.fetchall():
+                compounds.append({
+                    "name": row[0],
+                    "unit": row[1],
+                    "defaultDosage": row[2],
+                    "category": row[3],
+                    "description": row[4]
+                })
+            
+            return jsonify({"compounds": compounds}), 200
+    except Exception as e:
+        return jsonify({"error": f"Failed to fetch compounds: {str(e)}"}), 500
+
+@app.route("/api/compounds", methods=["POST"])
+def api_add_compound():
+    """API endpoint to add new compound"""
+    username = session.get('api_username')
+    if not username:
+        return jsonify({"error": "Not authenticated"}), 401
+    
+    data = request.get_json()
+    if not data or not data.get('name'):
+        return jsonify({"error": "Compound name is required"}), 400
+    
+    try:
+        with get_db_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute('''
+                INSERT OR IGNORE INTO default_compounds (name, unit, default_dosage, category, description, created_by)
+                VALUES (?, ?, ?, ?, ?, ?)
+            ''', (
+                data.get('name'),
+                data.get('unit', 'mg'),
+                data.get('defaultDosage', '1'),
+                data.get('category', 'supplement'),
+                data.get('description', ''),
+                username
+            ))
+            conn.commit()
+        
+        return jsonify({"success": True}), 201
+    except Exception as e:
+        return jsonify({"error": f"Failed to add compound: {str(e)}"}), 500
+
+@app.route("/api/protocols/<protocol_id>/analytics/advanced", methods=["GET"])
+def api_get_advanced_analytics(protocol_id):
+    """Enhanced analytics endpoint with AI insights and predictions"""
+    username = session.get('api_username')
+    if not username:
+        return jsonify({"error": "Not authenticated"}), 401
+    
+    try:
+        data = load_data(username)
+        
+        # Find matching protocol
+        matching_protocol = None
+        for pname in data.get("protocols", {}):
+            if pname.replace(" ", "_").lower() == protocol_id:
+                matching_protocol = pname
+                break
+        
+        if not matching_protocol:
+            return jsonify({"error": "Protocol not found"}), 404
+        
+        prot = data["protocols"][matching_protocol]
+        logs = prot["logs"]
+        
+        # Generate comprehensive analytics
+        analytics = generate_comprehensive_analytics(logs, prot["compounds"])
+        
+        return jsonify(analytics), 200
+        
+    except Exception as e:
+        return jsonify({"error": f"Failed to fetch advanced analytics: {str(e)}"}), 500
+
+def generate_comprehensive_analytics(logs, compounds):
+    """Generate comprehensive analytics with AI insights"""
+    total_days = len(logs)
+    if total_days == 0:
+        return {
+            "totalDays": 0,
+            "adherence": 0,
+            "streak": 0,
+            "missedDays": 0,
+            "compoundStats": {},
+            "aiInsights": [],
+            "predictions": {},
+            "correlations": [],
+            "weeklyTrends": [],
+            "monthlyTrends": [],
+            "bestPerformingDay": None,
+            "adherencePattern": "insufficient_data"
+        }
+    
+    # Calculate basic stats
+    compound_stats = {}
+    weekly_data = {}
+    monthly_data = {}
+    
+    for compound in compounds:
+        name = compound if isinstance(compound, str) else compound.get('name', compound)
+        taken_count = sum(1 for day_log in logs.values() 
+                         if day_log.get(name, {}).get("taken", False))
+        compound_stats[name] = {
+            "taken": taken_count,
+            "missed": total_days - taken_count,
+            "percentage": round((taken_count / total_days) * 100, 1)
+        }
+    
+    # Weekly and monthly trends
+    for date_str, day_log in logs.items():
+        try:
+            log_date = datetime.strptime(date_str, "%Y-%m-%d").date()
+            week = log_date.strftime("%Y-W%U")
+            month = log_date.strftime("%Y-%m")
+            
+            day_adherence = sum(1 for entry in day_log.values() if entry.get("taken", False)) / len(day_log) * 100
+            
+            if week not in weekly_data:
+                weekly_data[week] = []
+            if month not in monthly_data:
+                monthly_data[month] = []
+            
+            weekly_data[week].append(day_adherence)
+            monthly_data[month].append(day_adherence)
+        except ValueError:
+            continue
+    
+    weekly_trends = [{"week": week, "adherence": round(sum(values)/len(values), 1)} 
+                    for week, values in weekly_data.items()]
+    monthly_trends = [{"month": month, "adherence": round(sum(values)/len(values), 1)} 
+                     for month, values in monthly_data.items()]
+    
+    total_possible = total_days * len(compounds)
+    total_taken = sum(sum(1 for entry in day_log.values() if entry.get("taken", False)) 
+                     for day_log in logs.values())
+    overall_adherence = round((total_taken / total_possible) * 100, 1) if total_possible > 0 else 0
+    
+    # Calculate streak
+    sorted_dates = sorted(logs.keys(), reverse=True)
+    current_streak = 0
+    for date_str in sorted_dates:
+        day_log = logs[date_str]
+        all_taken = all(entry.get("taken", False) for entry in day_log.values())
+        if all_taken:
+            current_streak += 1
+        else:
+            break
+    
+    missed_days = sum(1 for day_log in logs.values() 
+                     if not all(entry.get("taken", False) for entry in day_log.values()))
+    
+    # AI Insights
+    ai_insights = generate_ai_insights(logs, compound_stats, overall_adherence, current_streak)
+    
+    # Predictions
+    predictions = generate_predictions(weekly_trends, monthly_trends, overall_adherence)
+    
+    # Correlations
+    correlations = []
+    for date_str, day_log in logs.items():
+        mood = day_log.get('mood', '')
+        energy = day_log.get('energy', '')
+        if mood and energy:
+            day_adherence = sum(1 for entry in day_log.values() if entry.get("taken", False)) / len(day_log) * 100
+            correlations.append({
+                "date": date_str,
+                "adherence": round(day_adherence, 1),
+                "mood": mood,
+                "energy": energy
+            })
+    
+    return {
+        "totalDays": total_days,
+        "adherence": overall_adherence,
+        "streak": current_streak,
+        "missedDays": missed_days,
+        "compoundStats": compound_stats,
+        "aiInsights": ai_insights,
+        "predictions": predictions,
+        "correlations": correlations,
+        "weeklyTrends": weekly_trends,
+        "monthlyTrends": monthly_trends,
+        "bestPerformingDay": get_best_performing_day(logs),
+        "adherencePattern": analyze_adherence_pattern(logs)
+    }
+
 @app.route("/api/healthkit/data", methods=["GET"])
 def api_get_healthkit_data():
     """API endpoint to retrieve user's HealthKit data with enhanced features"""

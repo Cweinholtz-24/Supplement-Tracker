@@ -1,4 +1,3 @@
-
 package com.supplementtracker.ui.analytics
 
 import androidx.compose.foundation.layout.*
@@ -24,11 +23,11 @@ fun AnalyticsScreen(
 ) {
     val uiState by viewModel.uiState.collectAsState()
     val tabState = remember { mutableStateOf(0) }
-    
+
     LaunchedEffect(protocolId) {
-        viewModel.loadAnalytics(protocolId)
+        viewModel.loadAdvancedAnalytics(protocolId)
     }
-    
+
     Scaffold(
         topBar = {
             TopAppBar(
@@ -47,6 +46,9 @@ fun AnalyticsScreen(
                     IconButton(onClick = { viewModel.exportAnalytics(protocolId) }) {
                         Icon(Icons.Default.FileDownload, contentDescription = "Export")
                     }
+                    IconButton(onClick = { viewModel.shareAnalytics(protocolId) }) {
+                        Icon(Icons.Default.Share, contentDescription = "Share")
+                    }
                 }
             )
         }
@@ -64,7 +66,7 @@ fun AnalyticsScreen(
                     }
                 }
             }
-            
+
             uiState.isError -> {
                 Column(
                     modifier = Modifier
@@ -87,12 +89,12 @@ fun AnalyticsScreen(
                         textAlign = TextAlign.Center
                     )
                     Spacer(modifier = Modifier.height(16.dp))
-                    Button(onClick = { viewModel.loadAnalytics(protocolId) }) {
+                    Button(onClick = { viewModel.loadAdvancedAnalytics(protocolId) }) {
                         Text("Retry")
                     }
                 }
             }
-            
+
             uiState.isSuccess -> {
                 uiState.data?.let { analytics ->
                     Column(
@@ -130,7 +132,7 @@ fun AnalyticsScreen(
                                 icon = { Icon(Icons.Default.Hub, contentDescription = null) }
                             )
                         }
-                        
+
                         // Tab Content
                         when (tabState.value) {
                             0 -> OverviewTab(analytics = analytics)
@@ -160,24 +162,24 @@ private fun OverviewTab(analytics: AdvancedAnalytics) {
         item {
             KeyMetricsSection(analytics = analytics)
         }
-        
+
         // Adherence Pattern
         item {
             AdherencePatternCard(pattern = analytics.adherencePattern)
         }
-        
+
         // Best Performing Day
         analytics.bestPerformingDay?.let { bestDay ->
             item {
                 BestPerformingDayCard(bestDay = bestDay)
             }
         }
-        
+
         // Compound Stats
         item {
             CompoundStatsSection(compoundStats = analytics.compoundStats)
         }
-        
+
         // Predictions
         analytics.predictions?.let { predictions ->
             item {
@@ -336,7 +338,7 @@ private fun AIInsightCard(insight: AIInsight) {
 @Composable
 private fun TrendsTab(weeklyTrends: List<WeeklyTrend>, monthlyTrends: List<MonthlyTrend>) {
     var selectedTimeframe by remember { mutableStateOf(0) }
-    
+
     Column(modifier = Modifier.fillMaxSize()) {
         TabRow(
             selectedTabIndex = selectedTimeframe,
@@ -353,7 +355,7 @@ private fun TrendsTab(weeklyTrends: List<WeeklyTrend>, monthlyTrends: List<Month
                 text = { Text("Monthly") }
             )
         }
-        
+
         Box(
             modifier = Modifier
                 .fillMaxSize()
@@ -439,12 +441,12 @@ private fun EmptyStateCard(
                         color = MaterialTheme.colorScheme.error
                     )
                     Spacer(modifier = Modifier.height(16.dp))
-                    Button(onClick = { viewModel.loadAnalytics(protocolId) }) {
+                    Button(onClick = { viewModel.loadAdvancedAnalytics(protocolId) }) {
                         Text("Retry")
                     }
                 }
             }
-            
+
             else -> {
                 uiState.data?.let { analytics ->
                     LazyColumn(
@@ -461,7 +463,7 @@ private fun EmptyStateCard(
                                 fontWeight = FontWeight.Bold
                             )
                         }
-                        
+
                         item {
                             Row(
                                 modifier = Modifier.fillMaxWidth(),
@@ -487,7 +489,7 @@ private fun EmptyStateCard(
                                         )
                                     }
                                 }
-                                
+
                                 Card(
                                     modifier = Modifier.weight(1f)
                                 ) {
@@ -510,7 +512,7 @@ private fun EmptyStateCard(
                                 }
                             }
                         }
-                        
+
                         item {
                             Row(
                                 modifier = Modifier.fillMaxWidth(),
@@ -536,7 +538,7 @@ private fun EmptyStateCard(
                                         )
                                     }
                                 }
-                                
+
                                 Card(
                                     modifier = Modifier.weight(1f)
                                 ) {
@@ -559,7 +561,7 @@ private fun EmptyStateCard(
                                 }
                             }
                         }
-                        
+
                         item {
                             Text(
                                 text = "Compound Statistics",
@@ -567,7 +569,7 @@ private fun EmptyStateCard(
                                 fontWeight = FontWeight.Medium
                             )
                         }
-                        
+
                         items(analytics.compoundStats.entries.toList()) { (compound, stats) ->
                             Card {
                                 Column(
@@ -580,9 +582,9 @@ private fun EmptyStateCard(
                                         style = MaterialTheme.typography.titleSmall,
                                         fontWeight = FontWeight.Medium
                                     )
-                                    
+
                                     Spacer(modifier = Modifier.height(12.dp))
-                                    
+
                                     Row(
                                         modifier = Modifier.fillMaxWidth(),
                                         horizontalArrangement = Arrangement.SpaceBetween
@@ -624,9 +626,9 @@ private fun EmptyStateCard(
                                             )
                                         }
                                     }
-                                    
+
                                     Spacer(modifier = Modifier.height(8.dp))
-                                    
+
                                     LinearProgressIndicator(
                                         progress = (stats.percentage / 100).toFloat(),
                                         modifier = Modifier.fillMaxWidth()

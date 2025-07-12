@@ -64,27 +64,39 @@ struct AdvancedAnalyticsView: View {
         isLoading = true
         errorMessage = nil
         
+        // First get basic analytics
         apiService.fetchProtocolAnalytics(protocolId: protocolId) { result in
             DispatchQueue.main.async {
-                isLoading = false
                 switch result {
                 case .success(let analyticsData):
-                    // Convert basic analytics to enhanced analytics
-                    self.analytics = EnhancedAnalyticsModel(
-                        totalDays: analyticsData.totalDays,
-                        adherence: analyticsData.adherence,
-                        streak: analyticsData.streak,
-                        missedDays: analyticsData.missedDays,
-                        compoundStats: analyticsData.compoundStats,
-                        aiInsights: [], // Will be populated by separate API call
-                        predictions: PredictionData(nextWeekAdherence: nil, trend: nil, daysToReachGoal: nil),
-                        correlations: [],
-                        weeklyTrends: [],
-                        monthlyTrends: [],
-                        bestPerformingDay: nil,
-                        adherencePattern: "good"
-                    )
+                    // Now get advanced analytics
+                    self.apiService.fetchAdvancedAnalytics(protocolId: self.protocolId) { advancedResult in
+                        DispatchQueue.main.async {
+                            self.isLoading = false
+                            switch advancedResult {
+                            case .success(let advanced):
+                                self.analytics = advanced
+                            case .failure(_):
+                                // Fallback to basic analytics
+                                self.analytics = EnhancedAnalyticsModel(
+                                    totalDays: analyticsData.totalDays,
+                                    adherence: analyticsData.adherence,
+                                    streak: analyticsData.streak,
+                                    missedDays: analyticsData.missedDays,
+                                    compoundStats: analyticsData.compoundStats,
+                                    aiInsights: [],
+                                    predictions: PredictionData(nextWeekAdherence: nil, trend: nil, daysToReachGoal: nil),
+                                    correlations: [],
+                                    weeklyTrends: [],
+                                    monthlyTrends: [],
+                                    bestPerformingDay: nil,
+                                    adherencePattern: "good"
+                                )
+                            }
+                        }
+                    }
                 case .failure(let error):
+                    self.isLoading = false
                     self.errorMessage = error.localizedDescription
                 }
             }

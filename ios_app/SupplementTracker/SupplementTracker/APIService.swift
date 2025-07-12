@@ -572,6 +572,55 @@ class APIService: ObservableObject {
         performRequest(url: url, method: "GET", body: nil, completion: completion)
     }
     
+    func fetchAdvancedAnalytics(protocolId: String, completion: @escaping (Result<EnhancedAnalyticsModel, Error>) -> Void) {
+        guard let url = URL(string: "\(baseURL)/api/protocols/\(protocolId)/analytics/advanced") else {
+            completion(.failure(APIError.invalidURL))
+            return
+        }
+        
+        performRequest(url: url, method: "GET", body: nil, completion: completion)
+    }
+    
+    func createProtocolFromTemplate(templateId: String, customName: String?, completion: @escaping (Result<ProtocolModel, Error>) -> Void) {
+        guard let url = URL(string: "\(baseURL)/api/protocols/from-template") else {
+            completion(.failure(APIError.invalidURL))
+            return
+        }
+        
+        let requestData = ["templateId": templateId, "customName": customName ?? ""]
+        performRequest(url: url, method: "POST", body: requestData, completion: completion)
+    }
+    
+    func manageProtocolCycles(protocolId: String, cycleConfig: [String: Any], completion: @escaping (Result<Void, Error>) -> Void) {
+        guard let url = URL(string: "\(baseURL)/api/protocols/cycles") else {
+            completion(.failure(APIError.invalidURL))
+            return
+        }
+        
+        let requestData = ["protocolId": protocolId, "cycleConfig": cycleConfig]
+        performVoidRequest(url: url, method: "POST", body: requestData, completion: completion)
+    }
+    
+    func trackSupplementCosts(costs: [SupplementCost], completion: @escaping (Result<Void, Error>) -> Void) {
+        guard let url = URL(string: "\(baseURL)/api/protocols/cost-tracking") else {
+            completion(.failure(APIError.invalidURL))
+            return
+        }
+        
+        let requestData = ["costs": costs.map { $0.toDictionary() }]
+        performVoidRequest(url: url, method: "POST", body: requestData, completion: completion)
+    }
+    
+    func setupSmartReminders(protocolId: String, reminderConfig: [String: Any], completion: @escaping (Result<Void, Error>) -> Void) {
+        guard let url = URL(string: "\(baseURL)/api/reminders/smart") else {
+            completion(.failure(APIError.invalidURL))
+            return
+        }
+        
+        let requestData = ["protocolId": protocolId, "reminderConfig": reminderConfig]
+        performVoidRequest(url: url, method: "POST", body: requestData, completion: completion)
+    }
+    
     func exportComprehensiveData(format: String, completion: @escaping (Result<ExportData, Error>) -> Void) {
         guard let url = URL(string: "\(baseURL)/api/export/comprehensive?format=\(format)") else {
             completion(.failure(APIError.invalidURL))
