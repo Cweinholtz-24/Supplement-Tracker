@@ -232,6 +232,14 @@ struct QuickActionsView: View {
                     ) {
                         // Export data
                     }
+
+                    QuickActionButton(
+                        icon: "heart.text.square",
+                        title: "Sync HealthKit",
+                        color: .red
+                    ) {
+                        HealthKitManager.shared.syncHealthKitDataToServer()
+                    }
                 }
                 .padding(.horizontal)
             }

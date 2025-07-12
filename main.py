@@ -3751,6 +3751,120 @@ def api_manage_reminders():
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
+@app.route("/api/healthkit/sync", methods=["POST"])
+def api_sync_healthkit_data():
+    """API endpoint to receive and store HealthKit data from iOS app"""
+    username = session.get('api_username')
+    if not username:
+        return jsonify({"error": "Not authenticated"}), 401
+    
+    data = request.get_json()
+    if not data:
+        return jsonify({"error": "No data provided"}), 400
+    
+    try:
+        supplements = data.get('supplements', [])
+        sync_date = data.get('syncDate')
+        
+        with get_db_connection() as conn:
+            cursor = conn.cursor()
+            
+            # Get user ID
+            cursor.execute("SELECT id FROM users WHERE username = ?", (username,))
+            user_row = cursor.fetchone()
+            if not user_row:
+                return jsonify({"error": "User not found"}), 404
+            user_id = user_row[0]
+            
+            # Create healthkit_data table if it doesn't exist
+            cursor.execute('''
+                CREATE TABLE IF NOT EXISTS healthkit_data (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    user_id INTEGER NOT NULL,
+                    supplement_name TEXT NOT NULL,
+                    amount REAL NOT NULL,
+                    unit TEXT NOT NULL,
+                    recorded_date TIMESTAMP NOT NULL,
+                    synced_date TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    FOREIGN KEY (user_id) REFERENCES users (id),
+                    UNIQUE(user_id, supplement_name, recorded_date)
+                )
+            ''')
+            
+            # Insert HealthKit supplement data
+            for supplement in supplements:
+                try:
+                    cursor.execute('''
+                        INSERT OR REPLACE INTO healthkit_data 
+                        (user_id, supplement_name, amount, unit, recorded_date, synced_date)
+                        VALUES (?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+                    ''', (
+                        user_id,
+                        supplement.get('name'),
+                        supplement.get('amount', 1.0),
+                        supplement.get('unit', 'count'),
+                        supplement.get('date')
+                    ))
+                except Exception as e:
+                    print(f"Error inserting supplement data: {e}")
+                    continue
+            
+            conn.commit()
+            
+            log_system_event('healthkit_sync', 
+                           f'HealthKit data synced for user {username}: {len(supplements)} supplements', 
+                           'info', user_id=user_id)
+        
+        return jsonify({
+            "success": True,
+            "message": f"Successfully synced {len(supplements)} supplement records from HealthKit",
+            "syncedAt": datetime.now().isoformat()
+        }), 200
+        
+    except Exception as e:
+        log_system_event('healthkit_sync_error', 
+                       f'HealthKit sync failed for user {username}: {str(e)}', 
+                       'error')
+        return jsonify({"error": f"Failed to sync HealthKit data: {str(e)}"}), 500
+
+@app.route("/api/healthkit/data", methods=["GET"])
+def api_get_healthkit_data():
+    """API endpoint to retrieve user's HealthKit data"""
+    username = session.get('api_username')
+    if not username:
+        return jsonify({"error": "Not authenticated"}), 401
+    
+    try:
+        with get_db_connection() as conn:
+            cursor = conn.cursor()
+            
+            # Get user's HealthKit data from last 30 days
+            cursor.execute('''
+                SELECT supplement_name, amount, unit, recorded_date, synced_date
+                FROM healthkit_data
+                WHERE user_id = (SELECT id FROM users WHERE username = ?)
+                AND recorded_date >= datetime('now', '-30 days')
+                ORDER BY recorded_date DESC
+            ''', (username,))
+            
+            healthkit_data = []
+            for row in cursor.fetchall():
+                healthkit_data.append({
+                    "supplementName": row[0],
+                    "amount": row[1],
+                    "unit": row[2],
+                    "recordedDate": row[3],
+                    "syncedDate": row[4]
+                })
+            
+            return jsonify({
+                "healthKitData": healthkit_data,
+                "totalRecords": len(healthkit_data)
+            }), 200
+            
+    except Exception as e:
+        return jsonify({"error": f"Failed to fetch HealthKit data: {str(e)}"}), 500
+
 # Add CORS headers for iOS app
 @app.after_request
 def after_request(response):

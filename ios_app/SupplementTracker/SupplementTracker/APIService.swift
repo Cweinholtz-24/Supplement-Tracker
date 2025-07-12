@@ -1,4 +1,3 @@
-
 //
 //  APIService.swift
 //  SupplementTracker
@@ -13,26 +12,26 @@ import UserNotifications
 
 class APIService: ObservableObject {
     static let shared = APIService()
-    
+
     // Your actual Replit app URL
     private let baseURL = "https://suptidetracker.replit.app"
-    
+
     @Published var isAuthenticated = false
     @Published var authToken: String?
     @Published var notifications: [NotificationModel] = []
     @Published var requires2FA = false
     @Published var pendingUsername: String?
-    
+
     private var cancellables = Set<AnyCancellable>()
-    
+
     init() {
         // Load saved auth token if exists
         loadAuthToken()
         setupNotifications()
     }
-    
+
     // MARK: - Notifications Setup
-    
+
     private func setupNotifications() {
         UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .badge, .sound]) { granted, error in
             if granted {
@@ -43,64 +42,64 @@ class APIService: ObservableObject {
             }
         }
     }
-    
+
     func scheduleReminderNotification(for protocolName: String, at time: Date) {
         let content = UNMutableNotificationContent()
         content.title = "Supplement Reminder"
         content.body = "Time to log your \(protocolName) protocol!"
         content.sound = .default
         content.badge = 1
-        
+
         let calendar = Calendar.current
         let components = calendar.dateComponents([.hour, .minute], from: time)
         let trigger = UNCalendarNotificationTrigger(dateMatching: components, repeats: true)
-        
+
         let request = UNNotificationRequest(identifier: "protocol-\(protocolName)", content: content, trigger: trigger)
-        
+
         UNUserNotificationCenter.current().add(request) { error in
             if let error = error {
                 print("Error scheduling notification: \(error)")
             }
         }
     }
-    
+
     // MARK: - Authentication
-    
+
     func login(username: String, password: String, completion: @escaping (Result<LoginResponse, Error>) -> Void) {
         guard let url = URL(string: "\(baseURL)/api/login") else {
             completion(.failure(APIError.invalidURL))
             return
         }
-        
+
         var request = URLRequest(url: url)
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        
+
         let loginData = LoginRequest(username: username, password: password)
-        
+
         do {
             request.httpBody = try JSONEncoder().encode(loginData)
         } catch {
             completion(.failure(error))
             return
         }
-        
+
         URLSession.shared.dataTask(with: request) { data, response, error in
             if let error = error {
                 completion(.failure(error))
                 return
             }
-            
+
             guard let httpResponse = response as? HTTPURLResponse,
                   let data = data else {
                 completion(.failure(APIError.invalidResponse))
                 return
             }
-            
+
             if httpResponse.statusCode == 200 {
                 do {
                     let loginResponse = try JSONDecoder().decode(LoginResponse.self, from: data)
-                    
+
                     if loginResponse.requires2FA == true {
                         DispatchQueue.main.async {
                             self.requires2FA = true
@@ -114,7 +113,7 @@ class APIService: ObservableObject {
                             let cookies = HTTPCookie.cookies(withResponseHeaderFields: headerFields, for: url)
                             HTTPCookieStorage.shared.setCookies(cookies, for: url, mainDocumentURL: nil)
                         }
-                        
+
                         DispatchQueue.main.async {
                             self.isAuthenticated = true
                             self.requires2FA = false
@@ -130,37 +129,37 @@ class APIService: ObservableObject {
             }
         }.resume()
     }
-    
+
     func verify2FA(code: String, completion: @escaping (Result<Void, Error>) -> Void) {
         guard let url = URL(string: "\(baseURL)/api/verify_2fa") else {
             completion(.failure(APIError.invalidURL))
             return
         }
-        
+
         var request = URLRequest(url: url)
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        
+
         let twoFAData = TwoFARequest(code: code)
-        
+
         do {
             request.httpBody = try JSONEncoder().encode(twoFAData)
         } catch {
             completion(.failure(error))
             return
         }
-        
+
         URLSession.shared.dataTask(with: request) { data, response, error in
             if let error = error {
                 completion(.failure(error))
                 return
             }
-            
+
             guard let httpResponse = response as? HTTPURLResponse else {
                 completion(.failure(APIError.invalidResponse))
                 return
             }
-            
+
             if httpResponse.statusCode == 200 {
                 // Save session cookies for future requests
                 if let headerFields = httpResponse.allHeaderFields as? [String: String],
@@ -168,7 +167,7 @@ class APIService: ObservableObject {
                     let cookies = HTTPCookie.cookies(withResponseHeaderFields: headerFields, for: url)
                     HTTPCookieStorage.shared.setCookies(cookies, for: url, mainDocumentURL: nil)
                 }
-                
+
                 DispatchQueue.main.async {
                     self.isAuthenticated = true
                     self.requires2FA = false
@@ -183,14 +182,14 @@ class APIService: ObservableObject {
             }
         }.resume()
     }
-    
+
     func logout() {
         authToken = nil
         isAuthenticated = false
         requires2FA = false
         pendingUsername = nil
         clearAuthToken()
-        
+
         // Clear cookies
         if let cookies = HTTPCookieStorage.shared.cookies {
             for cookie in cookies {
@@ -198,29 +197,29 @@ class APIService: ObservableObject {
             }
         }
     }
-    
+
     // MARK: - Protocols
-    
+
     func fetchProtocols(completion: @escaping (Result<[ProtocolModel], Error>) -> Void) {
         guard let url = URL(string: "\(baseURL)/api/protocols") else {
             completion(.failure(APIError.invalidURL))
             return
         }
-        
+
         var request = URLRequest(url: url)
         request.httpMethod = "GET"
-        
+
         URLSession.shared.dataTask(with: request) { data, response, error in
             if let error = error {
                 completion(.failure(error))
                 return
             }
-            
+
             guard let httpResponse = response as? HTTPURLResponse else {
                 completion(.failure(APIError.invalidResponse))
                 return
             }
-            
+
             if httpResponse.statusCode == 401 {
                 DispatchQueue.main.async {
                     self.isAuthenticated = false
@@ -229,12 +228,12 @@ class APIService: ObservableObject {
                 completion(.failure(APIError.loginFailed))
                 return
             }
-            
+
             guard let data = data else {
                 completion(.failure(APIError.noData))
                 return
             }
-            
+
             do {
                 let protocols = try JSONDecoder().decode([ProtocolModel].self, from: data)
                 completion(.success(protocols))
@@ -244,28 +243,28 @@ class APIService: ObservableObject {
             }
         }.resume()
     }
-    
+
     func fetchAvailableCompounds(completion: @escaping (Result<[String], Error>) -> Void) {
         guard let url = URL(string: "\(baseURL)/api/compounds") else {
             completion(.failure(APIError.invalidURL))
             return
         }
-        
+
         var request = URLRequest(url: url)
         request.httpMethod = "GET"
-        
+
         URLSession.shared.dataTask(with: request) { data, response, error in
             if let error = error {
                 completion(.failure(error))
                 return
             }
-            
+
             guard let httpResponse = response as? HTTPURLResponse,
                   let data = data else {
                 completion(.failure(APIError.invalidResponse))
                 return
             }
-            
+
             if httpResponse.statusCode == 200 {
                 do {
                     let response = try JSONDecoder().decode(CompoundsResponse.self, from: data)
@@ -278,37 +277,37 @@ class APIService: ObservableObject {
             }
         }.resume()
     }
-    
+
     func addCustomCompound(name: String, completion: @escaping (Result<Void, Error>) -> Void) {
         guard let url = URL(string: "\(baseURL)/api/compounds") else {
             completion(.failure(APIError.invalidURL))
             return
         }
-        
+
         var request = URLRequest(url: url)
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        
+
         let requestData = AddCompoundRequest(name: name)
-        
+
         do {
             request.httpBody = try JSONEncoder().encode(requestData)
         } catch {
             completion(.failure(error))
             return
         }
-        
+
         URLSession.shared.dataTask(with: request) { data, response, error in
             if let error = error {
                 completion(.failure(error))
                 return
             }
-            
+
             guard let httpResponse = response as? HTTPURLResponse else {
                 completion(.failure(APIError.invalidResponse))
                 return
             }
-            
+
             if httpResponse.statusCode == 201 {
                 completion(.success(()))
             } else {
@@ -322,31 +321,31 @@ class APIService: ObservableObject {
             completion(.failure(APIError.invalidURL))
             return
         }
-        
+
         var request = URLRequest(url: url)
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        
+
         let requestData = CreateProtocolRequest(name: name, compounds: compounds)
-        
+
         do {
             request.httpBody = try JSONEncoder().encode(requestData)
         } catch {
             completion(.failure(error))
             return
         }
-        
+
         URLSession.shared.dataTask(with: request) { data, response, error in
             if let error = error {
                 completion(.failure(error))
                 return
             }
-            
+
             guard let httpResponse = response as? HTTPURLResponse else {
                 completion(.failure(APIError.invalidResponse))
                 return
             }
-            
+
             if httpResponse.statusCode == 401 {
                 DispatchQueue.main.async {
                     self.isAuthenticated = false
@@ -355,12 +354,12 @@ class APIService: ObservableObject {
                 completion(.failure(APIError.loginFailed))
                 return
             }
-            
+
             guard let data = data else {
                 completion(.failure(APIError.noData))
                 return
             }
-            
+
             if httpResponse.statusCode == 201 {
                 do {
                     let protocolResponse = try JSONDecoder().decode(ProtocolModel.self, from: data)
@@ -373,37 +372,37 @@ class APIService: ObservableObject {
             }
         }.resume()
     }
-    
+
     func saveProtocolLog(protocolId: String, compounds: [String: Bool], notes: [String: String], dosages: [String: String] = [:], completion: @escaping (Result<Void, Error>) -> Void) {
         guard let url = URL(string: "\(baseURL)/api/protocols/\(protocolId)/log") else {
             completion(.failure(APIError.invalidURL))
             return
         }
-        
+
         var request = URLRequest(url: url)
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        
+
         let logData = ProtocolLogRequest(compounds: compounds, notes: notes, dosages: dosages)
-        
+
         do {
             request.httpBody = try JSONEncoder().encode(logData)
         } catch {
             completion(.failure(error))
             return
         }
-        
+
         URLSession.shared.dataTask(with: request) { data, response, error in
             if let error = error {
                 completion(.failure(error))
                 return
             }
-            
+
             guard let httpResponse = response as? HTTPURLResponse else {
                 completion(.failure(APIError.invalidResponse))
                 return
             }
-            
+
             if httpResponse.statusCode == 401 {
                 DispatchQueue.main.async {
                     self.isAuthenticated = false
@@ -412,7 +411,7 @@ class APIService: ObservableObject {
                 completion(.failure(APIError.loginFailed))
                 return
             }
-            
+
             if httpResponse.statusCode == 200 {
                 completion(.success(()))
             } else {
@@ -420,30 +419,30 @@ class APIService: ObservableObject {
             }
         }.resume()
     }
-    
+
     // MARK: - Analytics
-    
+
     func fetchProtocolAnalytics(protocolId: String, completion: @escaping (Result<AnalyticsModel, Error>) -> Void) {
         guard let url = URL(string: "\(baseURL)/api/protocols/\(protocolId)/analytics") else {
             completion(.failure(APIError.invalidURL))
             return
         }
-        
+
         var request = URLRequest(url: url)
         request.httpMethod = "GET"
-        
+
         URLSession.shared.dataTask(with: request) { data, response, error in
             if let error = error {
                 completion(.failure(error))
                 return
             }
-            
+
             guard let httpResponse = response as? HTTPURLResponse,
                   let data = data else {
                 completion(.failure(APIError.invalidResponse))
                 return
             }
-            
+
             if httpResponse.statusCode == 401 {
                 DispatchQueue.main.async {
                     self.isAuthenticated = false
@@ -452,7 +451,7 @@ class APIService: ObservableObject {
                 completion(.failure(APIError.loginFailed))
                 return
             }
-            
+
             if httpResponse.statusCode == 200 {
                 do {
                     let analytics = try JSONDecoder().decode(AnalyticsModel.self, from: data)
@@ -465,30 +464,30 @@ class APIService: ObservableObject {
             }
         }.resume()
     }
-    
+
     // MARK: - Notifications
-    
+
     func fetchNotifications(completion: @escaping (Result<[NotificationModel], Error>) -> Void) {
         guard let url = URL(string: "\(baseURL)/api/notifications") else {
             completion(.failure(APIError.invalidURL))
             return
         }
-        
+
         var request = URLRequest(url: url)
         request.httpMethod = "GET"
-        
+
         URLSession.shared.dataTask(with: request) { data, response, error in
             if let error = error {
                 completion(.failure(error))
                 return
             }
-            
+
             guard let httpResponse = response as? HTTPURLResponse,
                   let data = data else {
                 completion(.failure(APIError.invalidResponse))
                 return
             }
-            
+
             if httpResponse.statusCode == 401 {
                 DispatchQueue.main.async {
                     self.isAuthenticated = false
@@ -497,7 +496,7 @@ class APIService: ObservableObject {
                 completion(.failure(APIError.loginFailed))
                 return
             }
-            
+
             if httpResponse.statusCode == 200 {
                 do {
                     let notifications = try JSONDecoder().decode([NotificationModel].self, from: data)
@@ -513,27 +512,27 @@ class APIService: ObservableObject {
             }
         }.resume()
     }
-    
+
     func markNotificationAsRead(notificationId: String, completion: @escaping (Result<Void, Error>) -> Void) {
         guard let url = URL(string: "\(baseURL)/api/notifications/\(notificationId)/read") else {
             completion(.failure(APIError.invalidURL))
             return
         }
-        
+
         var request = URLRequest(url: url)
         request.httpMethod = "POST"
-        
+
         URLSession.shared.dataTask(with: request) { data, response, error in
             if let error = error {
                 completion(.failure(error))
                 return
             }
-            
+
             guard let httpResponse = response as? HTTPURLResponse else {
                 completion(.failure(APIError.invalidResponse))
                 return
             }
-            
+
             if httpResponse.statusCode == 200 {
                 completion(.success(()))
             } else {
@@ -541,21 +540,21 @@ class APIService: ObservableObject {
             }
         }.resume()
     }
-    
+
     // MARK: - Auth Token Management
-    
+
     private func saveAuthToken(_ token: String) {
         authToken = token
         UserDefaults.standard.set(token, forKey: "auth_token")
     }
-    
+
     private func loadAuthToken() {
         if let token = UserDefaults.standard.string(forKey: "auth_token") {
             authToken = token
             isAuthenticated = true
         }
     }
-    
+
     private func clearAuthToken() {
         UserDefaults.standard.removeObject(forKey: "auth_token")
     }
@@ -574,7 +573,7 @@ struct LoginResponse: Codable {
     let message: String
     let user: UserModel?
     let token: String?
-    
+
     enum CodingKeys: String, CodingKey {
         case success, message, user, token
         case requires2FA = "requires_2fa"
@@ -640,7 +639,7 @@ enum APIError: Error {
     case requestFailed
     case networkError
     case serverError(Int)
-    
+
     var localizedDescription: String {
         switch self {
         case .invalidURL:
@@ -661,7 +660,7 @@ enum APIError: Error {
             return "Server error (\(code)). Please try again later."
         }
     }
-    
+
     var isRetryable: Bool {
         switch self {
         case .networkError, .serverError, .requestFailed:
