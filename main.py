@@ -1085,6 +1085,36 @@ def update_config():
     flash("Configuration updated successfully!", "success")
     return redirect(url_for("admin_dashboard"))
 
+@app.route("/admin/export_database", methods=["GET"])
+@login_required
+@admin_required
+def export_database():
+    """Export the entire database as SQL"""
+    import tempfile
+    import shutil
+    
+    try:
+        # Create a temporary copy of the database
+        temp_db = tempfile.NamedTemporaryFile(suffix='.db', delete=False)
+        shutil.copy2(DB_PATH, temp_db.name)
+        temp_db.close()
+        
+        # Read the database file
+        with open(temp_db.name, 'rb') as f:
+            db_content = f.read()
+        
+        # Clean up temporary file
+        os.unlink(temp_db.name)
+        
+        return Response(
+            db_content,
+            mimetype="application/octet-stream",
+            headers={"Content-Disposition": "attachment; filename=supplement_tracker_backup.db"}
+        )
+    except Exception as e:
+        flash(f"Database export failed: {str(e)}", "error")
+        return redirect(url_for("admin_dashboard"))
+
 @app.route("/admin/test_email", methods=["POST"])
 @login_required
 @admin_required
