@@ -2067,10 +2067,10 @@ function exportData() {
 </script>
 """
 
-@app.route("/protocol/<name>/reminder")
+@app.route("/protocol/<name>/reminder", endpoint="reminder_v2")
 @login_required
 @require_2fa_setup
-def reminder(name):
+def reminder_v2(name):
     if get_config_value('email_reminders_enabled', 'true') != 'true':
         flash("Email reminders are currently disabled", "error")
         return redirect(url_for("tracker", name=name))
