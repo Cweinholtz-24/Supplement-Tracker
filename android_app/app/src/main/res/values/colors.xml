@@ -1,0 +1,15 @@
+
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <color name="primary_blue">#3B82F6</color>
+    <color name="secondary_blue">#60A5FA</color>
+    <color name="success_green">#10B981</color>
+    <color name="error_red">#EF4444</color>
+    <color name="warning_yellow">#F59E0B</color>
+    <color name="info_cyan">#06B6D4</color>
+    <color name="light_gray">#F8FAFC</color>
+    <color name="medium_gray">#64748B</color>
+    <color name="dark_gray">#1E293B</color>
+    <color name="black">#FF000000</color>
+    <color name="white">#FFFFFFFF</color>
+</resources>
