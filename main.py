@@ -1303,6 +1303,18 @@ def edit_user(user_id):
 
     return render_template_string(THEME_HEADER + EDIT_USER_TEMPLATE, user=user, user_id=user_id)
 
+@app.route("/admin/compounds", methods=["GET"])
+@login_required
+@admin_required
+def admin_compounds_page():
+    """Admin page to manage compounds"""
+    with get_db_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute("SELECT name, unit, default_dosage, category, description FROM default_compounds ORDER BY name")
+        compounds = cursor.fetchall()
+    
+    return render_template_string(THEME_HEADER + ADMIN_COMPOUNDS_TEMPLATE, compounds=compounds)
+
 @app.route("/admin/delete_admin/<username>", methods=["POST"])
 @login_required
 @super_admin_required
@@ -1412,14 +1424,19 @@ def tracker(name):
 @require_2fa_setup
 def edit_compounds(name):
     data = load_data()
-    compounds = request.form.get("new_compounds", "")
-    compound_list = [c.strip() for c in compounds.split(",") if c.strip()]
-    if not compound_list:
-        flash("At least one compound is required", "error")
-    else:
-        data["protocols"][name]["compounds"] = compound_list
-        save_data(data)
-        flash(f"Compounds updated successfully!", "success")
+    compounds_json = request.form.get("compounds_json", "")
+    
+    try:
+        compound_list = json.loads(compounds_json) if compounds_json else []
+        if not compound_list:
+            flash("At least one compound is required", "error")
+        else:
+            data["protocols"][name]["compounds"] = compound_list
+            save_data(data)
+            flash(f"Compounds updated successfully!", "success")
+    except json.JSONDecodeError:
+        flash("Invalid compound data", "error")
+    
     return redirect(url_for("tracker", name=name))
 
 @app.route("/protocol/<name>/calendar")
@@ -1810,6 +1827,14 @@ ADMIN_DASHBOARD_TEMPLATE = """
       <a href="/admin/users" class="btn-primary" title="View and manage all user accounts, disable/enable users, reset 2FA, and modify user information">👥 Manage Users</a>
     </div>
     <p>Manage user accounts, disable/enable users, reset 2FA, and modify user information.</p>
+  </div>
+
+  <div class="card">
+    <h2>🧪 Compound Management</h2>
+    <div class="nav-links" style="margin-bottom: 24px;">
+      <a href="/admin/compounds" class="btn-primary" title="Manage default compounds available to all users">🧪 Manage Compounds</a>
+    </div>
+    <p>Manage the default compounds available to all users when creating protocols.</p>
   </div>
 
   {% if current_admin.role == 'Super Admin' %}
@@ -2669,18 +2694,26 @@ TRACKER_TEMPLATE = """
       <table>
         <tr>
           <th>💊 Compound</th>
+          <th>📊 Dosage</th>
+          <th>⏰ Times/Day</th>
           <th>✅ Taken?</th>
           <th>📝 Notes</th>
         </tr>
         {% for c in compounds %}
+          {% set compound_name = c.name if c is mapping else c %}
+          {% set dosage = c.daily_dosage if c is mapping else '1' %}
+          {% set times = c.times_per_day if c is mapping else 1 %}
+          {% set unit = c.unit if c is mapping else 'capsule' %}
           <tr>
-            <td><strong>{{c}}</strong></td>
+            <td><strong>{{compound_name}}</strong></td>
+            <td>{{dosage}}{{unit}}</td>
+            <td>{{times}}x</td>
             <td class="checkbox-cell">
-              <input type="checkbox" name="check_{{c}}" 
-                     {% if log.get(c, {}).get('taken') %}checked{% endif %}>
+              <input type="checkbox" name="check_{{compound_name}}" 
+                     {% if log.get(compound_name, {}).get('taken') %}checked{% endif %}>
             </td>
             <td>
-              <input name="note_{{c}}" value="{{log.get(c, {}).get('note','')}}" 
+              <input name="note_{{compound_name}}" value="{{log.get(compound_name, {}).get('note','')}}" 
                      placeholder="Add notes...">
             </td>
           </tr>
@@ -2693,15 +2726,169 @@ TRACKER_TEMPLATE = """
 
   <div class="card">
     <h2>🧪 Edit Compounds</h2>
-    <form method="POST" action="/protocol/{{name}}/edit_compounds">
+    <div id="compound-editor">
       <div class="form-group">
-        <label>Compounds (comma-separated)</label>
-        <textarea name="new_compounds" rows="3" style="width: 100%;" 
-                  placeholder="FOXO4-DRI, Fisetin, Quercetin...">{{ compounds | join(', ') }}</textarea>
+        <label>Available Compounds</label>
+        <select id="compound-select" style="width: 100%;">
+          <option value="">Select a compound to add...</option>
+        </select>
       </div>
-      <button type="submit" class="btn-primary">🔄 Update Compounds</button>
+      
+      <div class="form-group">
+        <label>Custom Compound Name</label>
+        <input id="custom-compound" type="text" placeholder="Enter custom compound name..." style="width: 100%;">
+      </div>
+      
+      <div style="display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 16px;">
+        <div class="form-group">
+          <label>Daily Dosage</label>
+          <input id="dosage-input" type="text" value="1" style="width: 100%;">
+        </div>
+        <div class="form-group">
+          <label>Times per Day</label>
+          <input id="times-input" type="number" value="1" min="1" max="10" style="width: 100%;">
+        </div>
+        <div class="form-group">
+          <label>Unit</label>
+          <select id="unit-select" style="width: 100%;">
+            <option value="capsule">capsule</option>
+            <option value="tablet">tablet</option>
+            <option value="mg">mg</option>
+            <option value="ml">ml</option>
+            <option value="drops">drops</option>
+            <option value="pump">pump</option>
+          </select>
+        </div>
+      </div>
+      
+      <button type="button" id="add-compound-btn" class="btn-primary">➕ Add Compound</button>
+    </div>
+    
+    <div id="current-compounds" style="margin-top: 24px;">
+      <h3>Current Compounds</h3>
+      <div id="compounds-list"></div>
+    </div>
+    
+    <form method="POST" action="/protocol/{{name}}/edit_compounds" id="save-compounds-form">
+      <input type="hidden" name="compounds_json" id="compounds-json">
+      <button type="submit" class="btn-success" style="margin-top: 16px;">💾 Save Compounds</button>
     </form>
   </div>
+  
+  <script>
+    let currentCompounds = {{ compounds | tojson }};
+    let availableCompounds = [];
+    
+    // Load available compounds
+    fetch('/api/compounds/default')
+      .then(response => response.json())
+      .then(data => {
+        availableCompounds = data;
+        updateCompoundSelect();
+      });
+    
+    function updateCompoundSelect() {
+      const select = document.getElementById('compound-select');
+      select.innerHTML = '<option value="">Select a compound to add...</option>';
+      
+      availableCompounds.forEach(compound => {
+        const option = document.createElement('option');
+        option.value = compound.name;
+        option.textContent = `${compound.name} (${compound.defaultDosage}${compound.unit})`;
+        option.dataset.unit = compound.unit;
+        option.dataset.dosage = compound.defaultDosage;
+        select.appendChild(option);
+      });
+    }
+    
+    function renderCompounds() {
+      const list = document.getElementById('compounds-list');
+      list.innerHTML = '';
+      
+      currentCompounds.forEach((compound, index) => {
+        const compoundDiv = document.createElement('div');
+        compoundDiv.className = 'compound-item';
+        compoundDiv.style.cssText = 'display: flex; align-items: center; padding: 12px; margin: 8px 0; background: var(--bg); border-radius: 8px; border: 1px solid var(--border);';
+        
+        const name = typeof compound === 'string' ? compound : compound.name;
+        const dosage = typeof compound === 'string' ? '1' : compound.daily_dosage || '1';
+        const times = typeof compound === 'string' ? 1 : compound.times_per_day || 1;
+        const unit = typeof compound === 'string' ? 'capsule' : compound.unit || 'capsule';
+        
+        compoundDiv.innerHTML = `
+          <div style="flex: 1;">
+            <strong>${name}</strong><br>
+            <span style="color: var(--text-secondary); font-size: 0.9em;">${dosage}${unit}, ${times}x daily</span>
+          </div>
+          <button type="button" onclick="removeCompound(${index})" class="btn-danger btn-small">🗑️ Remove</button>
+        `;
+        
+        list.appendChild(compoundDiv);
+      });
+      
+      // Update hidden input
+      document.getElementById('compounds-json').value = JSON.stringify(currentCompounds);
+    }
+    
+    function removeCompound(index) {
+      currentCompounds.splice(index, 1);
+      renderCompounds();
+    }
+    
+    document.getElementById('compound-select').addEventListener('change', function() {
+      const selectedCompound = availableCompounds.find(c => c.name === this.value);
+      if (selectedCompound) {
+        document.getElementById('dosage-input').value = selectedCompound.defaultDosage;
+        document.getElementById('unit-select').value = selectedCompound.unit;
+      }
+    });
+    
+    document.getElementById('add-compound-btn').addEventListener('click', function() {
+      const select = document.getElementById('compound-select');
+      const customInput = document.getElementById('custom-compound');
+      const dosageInput = document.getElementById('dosage-input');
+      const timesInput = document.getElementById('times-input');
+      const unitSelect = document.getElementById('unit-select');
+      
+      const compoundName = select.value || customInput.value.trim();
+      
+      if (!compoundName) {
+        alert('Please select or enter a compound name');
+        return;
+      }
+      
+      // Check if compound already exists
+      const exists = currentCompounds.some(compound => {
+        const name = typeof compound === 'string' ? compound : compound.name;
+        return name === compoundName;
+      });
+      
+      if (exists) {
+        alert('This compound is already in the protocol');
+        return;
+      }
+      
+      const newCompound = {
+        name: compoundName,
+        daily_dosage: dosageInput.value || '1',
+        times_per_day: parseInt(timesInput.value) || 1,
+        unit: unitSelect.value || 'capsule'
+      };
+      
+      currentCompounds.push(newCompound);
+      renderCompounds();
+      
+      // Reset form
+      select.value = '';
+      customInput.value = '';
+      dosageInput.value = '1';
+      timesInput.value = '1';
+      unitSelect.value = 'capsule';
+    });
+    
+    // Initial render
+    renderCompounds();
+  </script>
 </div>
 """
 
@@ -3143,6 +3330,173 @@ EDIT_ADMIN_TEMPLATE = """
 </div>
 """
 
+ADMIN_COMPOUNDS_TEMPLATE = """
+<div class="container">
+  <div class="card">
+    <h1>🧪 Compound Management</h1>
+    <div class="nav-links">
+      <a href="/admin/dashboard">← Back to Dashboard</a>
+    </div>
+  </div>
+
+  <div class="card">
+    <h2>Add New Compound</h2>
+    <form id="add-compound-form">
+      <div style="display: grid; grid-template-columns: 2fr 1fr 1fr 1fr; gap: 16px;">
+        <div class="form-group">
+          <label>Compound Name</label>
+          <input id="compound-name" type="text" required placeholder="e.g., Fisetin">
+        </div>
+        <div class="form-group">
+          <label>Default Dosage</label>
+          <input id="compound-dosage" type="text" required placeholder="e.g., 100">
+        </div>
+        <div class="form-group">
+          <label>Unit</label>
+          <select id="compound-unit" required>
+            <option value="mg">mg</option>
+            <option value="capsule">capsule</option>
+            <option value="tablet">tablet</option>
+            <option value="ml">ml</option>
+            <option value="drops">drops</option>
+            <option value="pump">pump</option>
+            <option value="g">g</option>
+            <option value="mcg">mcg</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label>Category</label>
+          <select id="compound-category" required>
+            <option value="supplement">Supplement</option>
+            <option value="peptide">Peptide</option>
+            <option value="vitamin">Vitamin</option>
+            <option value="mineral">Mineral</option>
+            <option value="herb">Herb</option>
+            <option value="other">Other</option>
+          </select>
+        </div>
+      </div>
+      <div class="form-group">
+        <label>Description</label>
+        <textarea id="compound-description" rows="2" placeholder="Brief description of the compound..."></textarea>
+      </div>
+      <button type="submit" class="btn-primary">➕ Add Compound</button>
+    </form>
+  </div>
+
+  <div class="card">
+    <h2>Existing Compounds</h2>
+    {% if compounds %}
+      <table>
+        <thead>
+          <tr>
+            <th>Name</th>
+            <th>Default Dosage</th>
+            <th>Unit</th>
+            <th>Category</th>
+            <th>Description</th>
+            <th>Actions</th>
+          </tr>
+        </thead>
+        <tbody id="compounds-table">
+          {% for compound in compounds %}
+          <tr data-compound="{{compound[0]}}">
+            <td><strong>{{compound[0]}}</strong></td>
+            <td>{{compound[2]}}</td>
+            <td>{{compound[1]}}</td>
+            <td>{{compound[3]}}</td>
+            <td>{{compound[4] or 'No description'}}</td>
+            <td>
+              <button type="button" class="btn-danger btn-small" onclick="deleteCompound('{{compound[0]}}')">🗑️ Delete</button>
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    {% else %}
+      <p style="text-align: center; color: #6b7280; margin: 40px 0;">No compounds found. Add some above!</p>
+    {% endif %}
+  </div>
+</div>
+
+<script>
+document.getElementById('add-compound-form').addEventListener('submit', function(e) {
+  e.preventDefault();
+  
+  const compound = {
+    name: document.getElementById('compound-name').value,
+    defaultDosage: document.getElementById('compound-dosage').value,
+    unit: document.getElementById('compound-unit').value,
+    category: document.getElementById('compound-category').value,
+    description: document.getElementById('compound-description').value
+  };
+  
+  fetch('/admin/compounds', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({compounds: [compound]})
+  })
+  .then(response => response.json())
+  .then(data => {
+    if (data.success) {
+      location.reload();
+    } else {
+      alert('Error adding compound: ' + data.error);
+    }
+  })
+  .catch(error => {
+    alert('Error adding compound: ' + error);
+  });
+});
+
+function deleteCompound(compoundName) {
+  if (confirm('Delete compound "' + compoundName + '"?')) {
+    // Remove from UI first
+    const row = document.querySelector(`tr[data-compound="${compoundName}"]`);
+    if (row) {
+      row.remove();
+    }
+    
+    // Get current compounds and remove the one being deleted
+    const currentCompounds = Array.from(document.querySelectorAll('#compounds-table tr')).map(row => {
+      const cells = row.querySelectorAll('td');
+      if (cells.length > 0) {
+        return {
+          name: cells[0].textContent.trim(),
+          defaultDosage: cells[1].textContent.trim(),
+          unit: cells[2].textContent.trim(),
+          category: cells[3].textContent.trim(),
+          description: cells[4].textContent.trim()
+        };
+      }
+    }).filter(compound => compound && compound.name !== compoundName);
+    
+    // Update server
+    fetch('/admin/compounds', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({compounds: currentCompounds})
+    })
+    .then(response => response.json())
+    .then(data => {
+      if (!data.success) {
+        alert('Error deleting compound: ' + data.error);
+        location.reload();
+      }
+    })
+    .catch(error => {
+      alert('Error deleting compound: ' + error);
+      location.reload();
+    });
+  }
+}
+</script>
+"""
+
 # API Endpoints for iOS App
 @app.route("/api/login", methods=["POST"])
 def api_login():
@@ -3258,10 +3612,13 @@ def api_create_protocol():
         return jsonify({"error": "Protocol name is required"}), 400
     
     name = data.get('name').strip()
-    compounds = data.get('compounds', ["FOXO4-DRI", "Fisetin", "Quercetin"])
+    compounds = data.get('compounds', [])
     
     if not name:
         return jsonify({"error": "Protocol name is required"}), 400
+    
+    if not compounds:
+        return jsonify({"error": "At least one compound is required"}), 400
     
     try:
         user_data = load_data(username)
@@ -3270,9 +3627,28 @@ def api_create_protocol():
         if name in user_data["protocols"]:
             return jsonify({"error": "Protocol already exists"}), 409
         
+        # Convert compound details to storage format
+        compound_details = []
+        for compound in compounds:
+            if isinstance(compound, dict):
+                compound_details.append({
+                    "name": compound.get("name", ""),
+                    "daily_dosage": compound.get("dailyDosage", "1"),
+                    "times_per_day": compound.get("timesPerDay", 1),
+                    "unit": compound.get("unit", "capsule")
+                })
+            else:
+                # Legacy format - just compound name
+                compound_details.append({
+                    "name": compound,
+                    "daily_dosage": "1",
+                    "times_per_day": 1,
+                    "unit": "capsule"
+                })
+        
         # Create new protocol
         user_data["protocols"][name] = {
-            "compounds": compounds,
+            "compounds": compound_details,
             "logs": {}
         }
         
@@ -3281,9 +3657,9 @@ def api_create_protocol():
         protocol_response = {
             "id": name.replace(" ", "_").lower(),
             "name": name,
-            "compounds": compounds,
+            "compounds": compound_details,
             "frequency": "Daily",
-            "description": f"Protocol with {len(compounds)} compounds",
+            "description": f"Protocol with {len(compound_details)} compounds",
             "createdAt": datetime.now().isoformat() + "Z"
         }
         
@@ -3576,25 +3952,78 @@ def api_get_default_compounds():
     try:
         with get_db_connection() as conn:
             cursor = conn.cursor()
-            cursor.execute("SELECT value FROM app_config WHERE key = 'default_compounds'")
-            row = cursor.fetchone()
-            if row:
-                compounds = json.loads(row[0])
-            else:
-                # Default compound list if not configured
-                compounds = [
-                    {"name": "FOXO4-DRI", "unit": "mg", "defaultDosage": "10"},
-                    {"name": "Fisetin", "unit": "mg", "defaultDosage": "100"},
-                    {"name": "Quercetin", "unit": "mg", "defaultDosage": "500"},
-                    {"name": "Resveratrol", "unit": "mg", "defaultDosage": "250"},
-                    {"name": "Curcumin", "unit": "mg", "defaultDosage": "500"},
-                    {"name": "Pterostilbene", "unit": "mg", "defaultDosage": "50"},
-                    {"name": "Luteolin", "unit": "mg", "defaultDosage": "100"},
-                    {"name": "Apigenin", "unit": "mg", "defaultDosage": "50"}
+            cursor.execute("SELECT name, unit, default_dosage, category, description FROM default_compounds ORDER BY name")
+            compounds = []
+            for row in cursor.fetchall():
+                compounds.append({
+                    "name": row[0],
+                    "unit": row[1],
+                    "defaultDosage": row[2],
+                    "category": row[3],
+                    "description": row[4]
+                })
+            
+            # If no compounds in database, add defaults
+            if not compounds:
+                default_compounds = [
+                    ("FOXO4-DRI", "mg", "10", "peptide", "Senolytic peptide"),
+                    ("Fisetin", "mg", "100", "supplement", "Natural senolytic compound"),
+                    ("Quercetin", "mg", "500", "supplement", "Flavonoid with senolytic properties"),
+                    ("Resveratrol", "mg", "250", "supplement", "Polyphenol antioxidant"),
+                    ("Curcumin", "mg", "500", "supplement", "Anti-inflammatory compound"),
+                    ("Pterostilbene", "mg", "50", "supplement", "Resveratrol derivative"),
+                    ("Luteolin", "mg", "100", "supplement", "Flavonoid compound"),
+                    ("Apigenin", "mg", "50", "supplement", "Flavonoid found in herbs")
                 ]
+                
+                for name, unit, dosage, category, description in default_compounds:
+                    cursor.execute('''
+                        INSERT INTO default_compounds (name, unit, default_dosage, category, description)
+                        VALUES (?, ?, ?, ?, ?)
+                    ''', (name, unit, dosage, category, description))
+                
+                conn.commit()
+                
+                # Return the default compounds
+                compounds = [
+                    {"name": name, "unit": unit, "defaultDosage": dosage, "category": category, "description": description}
+                    for name, unit, dosage, category, description in default_compounds
+                ]
+        
         return jsonify(compounds), 200
     except Exception as e:
         return jsonify({"error": f"Failed to fetch default compounds: {str(e)}"}), 500
+
+@app.route("/api/compounds/add", methods=["POST"])
+def api_add_custom_compound():
+    """API endpoint to add custom compound"""
+    username = session.get('api_username')
+    if not username:
+        return jsonify({"error": "Not authenticated"}), 401
+    
+    data = request.get_json()
+    if not data or not data.get('name'):
+        return jsonify({"error": "Compound name is required"}), 400
+    
+    try:
+        with get_db_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute('''
+                INSERT OR IGNORE INTO default_compounds (name, unit, default_dosage, category, description, created_by)
+                VALUES (?, ?, ?, ?, ?, ?)
+            ''', (
+                data.get('name'),
+                data.get('unit', 'mg'),
+                data.get('defaultDosage', '1'),
+                data.get('category', 'supplement'),
+                data.get('description', ''),
+                username
+            ))
+            conn.commit()
+        
+        return jsonify({"success": True}), 201
+    except Exception as e:
+        return jsonify({"error": f"Failed to add compound: {str(e)}"}), 500
 
 @app.route("/admin/compounds", methods=["GET", "POST"])
 @login_required
@@ -3607,10 +4036,24 @@ def admin_manage_compounds():
         
         with get_db_connection() as conn:
             cursor = conn.cursor()
-            cursor.execute('''
-                INSERT OR REPLACE INTO app_config (key, value, updated_at, updated_by)
-                VALUES (?, ?, CURRENT_TIMESTAMP, ?)
-            ''', ('default_compounds', json.dumps(compounds), current_user.username))
+            
+            # Clear existing compounds
+            cursor.execute("DELETE FROM default_compounds")
+            
+            # Insert new compounds
+            for compound in compounds:
+                cursor.execute('''
+                    INSERT INTO default_compounds (name, unit, default_dosage, category, description, created_by)
+                    VALUES (?, ?, ?, ?, ?, ?)
+                ''', (
+                    compound.get('name'),
+                    compound.get('unit', 'mg'),
+                    compound.get('defaultDosage', '1'),
+                    compound.get('category', 'supplement'),
+                    compound.get('description', ''),
+                    current_user.username
+                ))
+            
             conn.commit()
         
         return jsonify({"success": True}), 200
@@ -3619,12 +4062,16 @@ def admin_manage_compounds():
     try:
         with get_db_connection() as conn:
             cursor = conn.cursor()
-            cursor.execute("SELECT value FROM app_config WHERE key = 'default_compounds'")
-            row = cursor.fetchone()
-            if row:
-                compounds = json.loads(row[0])
-            else:
-                compounds = []
+            cursor.execute("SELECT name, unit, default_dosage, category, description FROM default_compounds ORDER BY name")
+            compounds = []
+            for row in cursor.fetchall():
+                compounds.append({
+                    "name": row[0],
+                    "unit": row[1],
+                    "defaultDosage": row[2],
+                    "category": row[3],
+                    "description": row[4]
+                })
         return jsonify(compounds), 200
     except Exception as e:
         return jsonify({"error": str(e)}), 500
